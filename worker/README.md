@@ -30,9 +30,8 @@ you control. That's this Worker.
 
 Everything below is done by clicking through Cloudflare's website at
 [dash.cloudflare.com](https://dash.cloudflare.com). A free account is
-enough. This is the path that was actually used to set up Archive Mole's
-own copy of this Worker — not `wrangler` — so it doesn't assume Node, npm,
-or any installed tools.
+enough. This is the path that was actually used to set this up — not
+`wrangler` — so it doesn't assume Node, npm, or any installed tools.
 
 1. **Create the Worker.**
    - Dashboard → **Workers & Pages** → **Create** → **Workers** → give it

@@ -2234,14 +2234,19 @@
           1
         );
 
+        // The ticker above already states the unfiltered total, so this
+        // only has something to say — the filtered count — when a filter
+        // is actually narrowing the list. Empty otherwise, rather than
+        // repeating the same number the ticker just showed.
         const rh = document.getElementById('results-header');
         rh.textContent =
           searchTerms.length ||
           currentPlatform !== 'all' ||
           dateFrom ||
+          dateTo ||
           activeTagFilter
             ? `${filteredConversations.length} of ${allConversations.length} conversations`
-            : `${allConversations.length} conversations`;
+            : '';
 
         if (!slice.length) {
           list.innerHTML =

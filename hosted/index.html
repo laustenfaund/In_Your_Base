@@ -1609,8 +1609,9 @@ Apr 14, 2026</div>
 
       // Neither known export shape matched, so fall back to a best-effort
       // reader for "an array of turns, each with a role and some text" —
-      // the shape most simple chat exports land in even when the exact
-      // field names differ. Anything it can't confidently read (no
+      // a shape a lot of simple JSON exports land in, whatever produced
+      // them, even when the exact field names differ. Anything it can't
+      // confidently read (no
       // recognizable message array, no recognizable role) is skipped
       // rather than guessed at, same policy as the two dedicated parsers:
       // silently drop what isn't understood, never invent content.
@@ -2902,7 +2903,7 @@ Apr 14, 2026</div>
         </ol>
         <div class="note">
           <p class="note-label">What In Your Base actually reads</p>
-          <p>ChatGPT's export stores each conversation as a tree of linked message nodes; In Your Base walks that tree from root to the last child at each step to reconstruct the back-and-forth, then strips ChatGPT's inline citation markers out of the text. Claude.ai's export stores each conversation as a flat list of messages instead, and In Your Base reads that shape directly too. Neither of those two shapes matched? It falls back to a generic reader that looks for an array of turns with something role-like (<code>role</code>/<code>author</code>/<code>sender</code>) and something text-like (<code>text</code>/<code>content</code>/<code>message</code>/<code>body</code>) on each one — common enough that a lot of simple chat exports land in it even with different exact field names. Anything the generic reader can't confidently make sense of is skipped rather than guessed at. All three shapes land in the same archive.</p>
+          <p>ChatGPT's export stores each conversation as a tree of linked message nodes; In Your Base walks that tree from root to the last child at each step to reconstruct the back-and-forth, then strips ChatGPT's inline citation markers out of the text. Claude.ai's export stores each conversation as a flat list of messages instead, and In Your Base reads that shape directly too. Neither of those two shapes matched? It falls back to a generic reader that looks for an array of turns with something role-like (<code>role</code>/<code>author</code>/<code>sender</code>) and something text-like (<code>text</code>/<code>content</code>/<code>message</code>/<code>body</code>) on each one — common enough that a lot of simple exports land in it, whatever produced them, even with different exact field names. Anything the generic reader can't confidently make sense of is skipped rather than guessed at. All three shapes land in the same archive.</p>
           <p>Platform is detected from the file's own shape: a Claude.ai–shaped file is always labeled <span class="tagpill">claude</span>; a ChatGPT-shaped file is labeled <span class="tagpill">claude</span> only when its recorded model name contains "claude" (useful for aggregated or multi-model exports), and <span class="tagpill">chatgpt</span> otherwise. Anything read by the generic fallback is labeled from whatever the file itself says its source is (a <code>platform</code>/<code>source</code>/<code>provider</code>/<code>model</code> field), or <span class="tagpill">other</span> if it doesn't say. The platform filter row builds itself from whatever labels actually turn up in your loaded archive — it isn't fixed to two.</p>
         </div>
         <p>Only files ending in <code>.json</code> are accepted by drag-and-drop; anything else dropped onto the zone is quietly ignored.</p>

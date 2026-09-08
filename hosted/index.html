@@ -109,6 +109,19 @@
         flex-wrap: wrap;
         gap: 8px;
       }
+      /* Loaded-state header: one slim row, not the tall centered stack the
+         empty state uses — brand on the left, actions on the right. */
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding-bottom: 14px;
+        margin-bottom: 20px;
+        border-bottom: 1px solid var(--panel-line);
+      }
+      .topbar-sp {
+        flex: 1;
+      }
       .site-title-row {
         display: flex;
         align-items: center;
@@ -183,35 +196,128 @@
       }
 
       /* Drop zone */
+      /* Empty state: split intro. Two asymmetric columns instead of one
+         centered block — the drop target is a white paper card (the one
+         white surface on an all-violet screen), not a dashed box floating
+         in empty space. Bleeds to #app's own edges via negative margins
+         matching its padding; since html/body already carry the same
+         violet gradient, there's no seam even on screens wider than
+         #app's max-width. */
+      .empty-split {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr;
+        min-height: 80vh;
+        margin: -2rem -1.5rem -4rem;
+      }
+      @media (max-width: 820px) {
+        .empty-split {
+          grid-template-columns: 1fr;
+        }
+      }
+      .empty-left {
+        padding: 3.5rem 3rem;
+        display: flex;
+        flex-direction: column;
+      }
+      .empty-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 2.5rem;
+      }
+      .empty-headline {
+        font-family: var(--display);
+        font-size: 27px;
+        font-weight: 700;
+        color: #fff;
+        line-height: 1.32;
+        margin-bottom: 24px;
+        max-width: 26ch;
+      }
+      .empty-feat {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 22px;
+      }
+      .empty-feat .feat-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        margin-top: 7px;
+        flex-shrink: 0;
+      }
+      .empty-feat b {
+        display: block;
+        color: var(--text-on-panel);
+        font-size: 14px;
+        margin-bottom: 3px;
+      }
+      .empty-feat span {
+        display: block;
+        color: var(--text-on-panel-muted);
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+      .empty-priv {
+        margin-top: auto;
+        padding-top: 24px;
+        border-top: 1px solid var(--panel-line);
+        font-size: 11.5px;
+        color: var(--text-on-panel-muted);
+        line-height: 1.6;
+        margin-bottom: 20px;
+      }
+      .empty-right {
+        background: var(--bg-deep);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem;
+      }
       .drop-zone {
-        border: 1px dashed var(--panel-line2);
-        border-radius: var(--radius2);
-        padding: 3rem 2rem;
+        background: var(--bg2);
+        border: 2px dashed var(--border2);
+        border-radius: 20px;
+        padding: 3.2rem 2.4rem;
         text-align: center;
         cursor: pointer;
         transition: all 0.15s;
-        margin-bottom: 2rem;
+        width: 100%;
+        max-width: 380px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
       }
       .drop-zone:hover,
       .drop-zone.dragover {
         border-color: var(--accent);
-        background: rgba(var(--accent-rgb), 0.08);
+        background: var(--bg2);
       }
       .drop-zone-icon {
-        font-size: 32px;
-        margin-bottom: 12px;
+        font-size: 34px;
+        margin-bottom: 14px;
       }
       .drop-zone h2 {
         font-family: var(--display);
         font-size: 19px;
         font-weight: 700;
-        color: var(--text-on-panel);
-        margin-bottom: 8px;
+        color: var(--text);
+        margin-bottom: 6px;
       }
       .drop-zone p {
-        font-size: 13px;
-        color: var(--text-on-panel-muted);
+        font-size: 12px;
+        color: var(--text3);
         font-family: var(--mono);
+        margin-bottom: 20px;
+      }
+      .drop-zone-btn {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 12px;
+        padding: 9px 20px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--on-accent);
+        border: none;
       }
       #file-input {
         display: none;
@@ -297,20 +403,24 @@
         letter-spacing: 0.08em;
         margin-bottom: 8px;
       }
+      /* Condensed into the .ticker row (see below) instead of a full-width
+         block of its own — same clickable/hoverable bars, just a sparkline
+         now rather than the main event on the screen. */
       .timeline-bar {
-        display: flex;
-        gap: 3px;
+        display: inline-flex;
+        gap: 2px;
         align-items: flex-end;
-        height: 48px;
-        margin-bottom: 4px;
+        height: 15px;
+        width: 130px;
+        vertical-align: -3px;
       }
       .tl-col {
         flex: 1;
         background: var(--panel-line);
-        border-radius: 3px 3px 0 0;
+        border-radius: 1px 1px 0 0;
         cursor: pointer;
         transition: background 0.15s;
-        min-height: 3px;
+        min-height: 2px;
       }
       .tl-col:hover {
         background: rgba(var(--accent-rgb), 0.6);
@@ -318,13 +428,33 @@
       .tl-col.active {
         background: var(--accent);
       }
+      /* The bars are only ~130px wide now (see .timeline-bar above), too
+         narrow for a legible label row underneath — each bar still has a
+         title="" tooltip with its exact month and count on hover, so
+         nothing is lost by not spelling every label out here. */
       .tl-labels {
+        display: none;
+      }
+
+      /* Stats + activity, condensed into one line under the search/filter
+         card instead of five boxed tiles plus a full-width chart above it. */
+      .ticker {
         display: flex;
-        justify-content: space-between;
-        font-size: 10px;
-        color: var(--text-on-panel-muted);
+        align-items: center;
+        gap: 18px;
+        flex-wrap: wrap;
         font-family: var(--mono);
-        margin-bottom: 1.5rem;
+        font-size: 11px;
+        color: var(--text-on-panel-muted);
+        margin: 4px 0 10px;
+      }
+      .ticker b {
+        color: #fff;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .ticker-timeline {
+        margin-left: auto;
       }
 
       /* Divider */
@@ -433,64 +563,67 @@
 
       /* Filters — these sit directly on the violet page, not on a white
          card, so they get the panel treatment instead of --bg2/--text. */
-      .filter-bar {
+      /* Command bar hero: search + every filter live inside the one white
+         .search-box card (see .cluster-divider/.cluster-filters below), so
+         everything in this block is styled for a white surface, not the
+         violet page — unlike the .tag-filter/.user-tag-chip rules further
+         down, which stay outside the card, directly on the page. */
+      .cluster-divider {
+        height: 1px;
+        background: var(--border);
+        margin: 12px 0 10px;
+      }
+      .cluster-filters {
         display: flex;
-        gap: 7px;
-        margin-bottom: 10px;
+        gap: 8px;
         flex-wrap: wrap;
         align-items: center;
       }
-      .filter-label { font-size: 11px; color: var(--text-on-panel-muted); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.04em; }
+      .filter-label { font-size: 10.5px; color: var(--text3); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.04em; }
+      .cluster-arrow { font-size: 12px; color: var(--text3); font-family: var(--mono); }
       .chip {
         font-size: 12px;
         font-family: var(--mono);
         padding: 5px 13px;
-        border: 1px solid var(--panel-line);
+        border: 1px solid var(--border);
         border-radius: 999px;
-        background: var(--bg-panel);
-        color: var(--text-on-panel);
+        background: var(--bg3);
+        color: var(--text2);
         cursor: pointer;
         transition: all 0.1s;
       }
       .chip.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 700; }
       .chip:hover {
-        border-color: var(--panel-line2);
+        border-color: var(--border2);
       }
 
-      .date-row {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 10px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      .date-row input[type='date'] {
+      .cluster-filters input[type='date'] {
         font-size: 12px;
         font-family: var(--mono);
         padding: 6px 10px;
-        border: 1px solid var(--panel-line);
+        border: 1px solid var(--border);
         border-radius: var(--radius);
-        background: var(--bg-panel);
-        color: var(--text-on-panel);
-        color-scheme: dark;
+        background: var(--bg3);
+        color: var(--text2);
+        color-scheme: light;
       }
-      .date-row input[type='date']:focus {
+      .cluster-filters input[type='date']:focus {
         outline: none;
-        border-color: var(--panel-line2);
+        border-color: var(--border2);
       }
       .small-btn {
         font-size: 11px;
         font-family: var(--mono);
         padding: 5px 11px;
-        background: var(--bg-panel);
-        border: 1px solid var(--panel-line);
+        background: var(--bg3);
+        border: 1px solid var(--border);
         border-radius: 999px;
-        color: var(--text-on-panel-muted);
+        color: var(--text3);
         cursor: pointer;
       }
       .small-btn:hover {
-        color: #fff;
-        border-color: var(--panel-line2);
+        color: var(--text);
+        border-color: var(--border2);
       }
 
       .tag-filter {
@@ -519,26 +652,20 @@
         font-weight: 600;
       }
 
-      .sort-row {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 1.25rem;
-        align-items: center;
-      }
-      .sort-row select {
+      .cluster-filters select {
         font-size: 12px;
         font-family: var(--mono);
         padding: 6px 10px;
-        border: 1px solid var(--panel-line);
+        border: 1px solid var(--border);
         border-radius: var(--radius);
-        background: var(--bg-panel);
-        color: var(--text-on-panel);
-        color-scheme: dark;
+        background: var(--bg3);
+        color: var(--text2);
+        color-scheme: light;
         cursor: pointer;
       }
-      .sort-row select:focus {
+      .cluster-filters select:focus {
         outline: none;
-        border-color: var(--panel-line2);
+        border-color: var(--border2);
       }
 
       /* Results */
@@ -961,56 +1088,64 @@
   <body>
     <div id="app">
       <!-- Empty state -->
-      <div id="empty-state-area" style="">
-        <div class="site-header" style="
-            justify-content: center;
-            text-align: center;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-          ">
-          <div class="site-title-row">
+      <div id="empty-state-area" class="empty-split">
+        <div class="empty-left">
+          <div class="empty-brand">
+            <svg class="mole-mark" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="13" cy="13" r="9.2" stroke="currentColor" stroke-width="1.9"/>
+              <path d="M19.7 19.7L27.5 27.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+              <circle cx="10" cy="11.3" r="1.15" fill="currentColor"/>
+              <circle cx="16" cy="11.3" r="1.15" fill="currentColor"/>
+              <path d="M9 15.3c1.2 1.6 6.8 1.6 8 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
             <div class="site-title">In Your<span> Base</span></div>
           </div>
-          <div class="site-sub">search across your own data, from any source</div>
-          <div class="header-actions">
-            <button class="add-files-btn" id="manual-btn-empty">manual</button>
+          <h1 class="empty-headline">A personal, local-only browser for your own exported data.</h1>
+          <div class="empty-feat">
+            <div class="feat-dot"></div>
+            <div><b>Detects the file type automatically</b><span>Drop in any JSON export — ChatGPT and Claude are read precisely, anything else through a generic reader.</span></div>
+          </div>
+          <div class="empty-feat">
+            <div class="feat-dot"></div>
+            <div><b>Search, filter, tag</b><span>By keyword, platform, date range, and your own tags.</span></div>
+          </div>
+          <div class="empty-feat">
+            <div class="feat-dot"></div>
+            <div><b>100% local, always</b><span>No server, no upload — a single file that only reads what's on your device.</span></div>
+          </div>
+          <div class="empty-priv">Nothing sent anywhere unless you turn on the optional AI assistant — and even then, only your messages and what it reads to answer them.</div>
+          <button class="add-files-btn" id="manual-btn-empty">manual</button>
+        </div>
+        <div class="empty-right">
+          <div class="drop-zone" id="drop-zone-empty">
+            <div class="drop-zone-icon">📂</div>
+            <h2>Drop your files here</h2>
+            <p>or click to browse — .json only, duplicates skipped automatically</p>
+            <button class="drop-zone-btn">choose files</button>
+            <input type="file" id="file-input" multiple="" accept=".json">
           </div>
         </div>
-        <div class="drop-zone" id="drop-zone-empty">
-          <div class="drop-zone-icon">📂</div>
-          <h2>Drop your JSON export files here</h2>
-          <p>or click to choose files — duplicates skipped automatically</p>
-          <input type="file" id="file-input" multiple="" accept=".json">
-        </div>
-        <p style="
-            text-align: center;
-            font-size: 12px;
-            color: var(--text3);
-            font-family: var(--mono);
-          ">
-          Detects the file type automatically — any JSON export works
-        </p>
       </div>
 
       <!-- Main area -->
       <div id="main-area" style="display: none;">
-        <div class="site-header">
-          <div class="header-top">
-          <div>
-            <div class="site-title-row">
+        <div class="topbar">
+          <div class="site-title-row">
+            <svg class="mole-mark" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="13" cy="13" r="9.2" stroke="currentColor" stroke-width="1.9"/>
+              <path d="M19.7 19.7L27.5 27.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+              <circle cx="10" cy="11.3" r="1.15" fill="currentColor"/>
+              <circle cx="16" cy="11.3" r="1.15" fill="currentColor"/>
+              <path d="M9 15.3c1.2 1.6 6.8 1.6 8 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
             <div class="site-title">In Your<span> Base</span></div>
           </div>
-            <div class="site-sub" id="header-sub">
-              search across your own data, from any source
-            </div>
-          </div>
-          <button class="add-files-btn" id="manual-btn">manual</button>
-          </div>
+          <div class="topbar-sp"></div>
           <div class="header-actions">
             <button class="add-files-btn" id="add-files-btn">+ add files</button>
             <button class="add-files-btn" id="brief-btn">brief</button>
             <button class="add-files-btn" id="assistant-btn">assistant</button>
+            <button class="add-files-btn" id="manual-btn">manual</button>
             <button class="add-files-btn danger-btn" id="clear-data-btn">clear data</button>
           </div>
         </div>
@@ -1020,38 +1155,9 @@
         </div>
         <div id="loaded-files-area" class="loaded-files"></div>
 
-        <div class="stats-grid">
-          <div class="stat">
-            <div class="stat-label">conversations</div>
-            <div class="stat-value" id="stat-convs">880</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">messages</div>
-            <div class="stat-value" id="stat-msgs">38,582</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">words</div>
-            <div class="stat-value" id="stat-words">0</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">files</div>
-            <div class="stat-value" id="stat-files">0</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">span</div>
-            <div class="stat-value small" id="stat-dates">Jan 24, 2025
-Apr 14, 2026</div>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="section-label">
-          activity timeline — click a bar to filter by month
-        </div>
-        <div class="timeline-bar" id="timeline-bar"></div>
-        <div class="tl-labels" id="tl-labels"></div>
-
+        <!-- Search + filters live in one white cluster, not four stacked
+             rows on the page — see cluster-divider below for the seam
+             between the two. -->
         <div class="search-box">
           <div class="search-main">
             <span class="search-icon">⌕</span>
@@ -1073,23 +1179,25 @@ Apr 14, 2026</div>
               exact phrase
             </button>
           </div>
-        </div>
 
-        <div class="filter-bar">
-          <span class="filter-label">platform:</span>
-          <div id="platform-chips" style="display: contents"></div>
-        </div>
+          <div class="cluster-divider"></div>
 
-        <div class="date-row">
-          <span class="filter-label">date:</span>
-          <input type="date" id="date-from">
-          <span style="
-              font-size: 12px;
-              color: var(--text3);
-              font-family: var(--mono);
-            ">→</span>
-          <input type="date" id="date-to">
-          <button class="small-btn" onclick="clearDates()">clear</button>
+          <div class="cluster-filters">
+            <span class="filter-label">platform:</span>
+            <div id="platform-chips" style="display: contents"></div>
+            <span class="filter-label">date:</span>
+            <input type="date" id="date-from">
+            <span class="cluster-arrow">→</span>
+            <input type="date" id="date-to">
+            <button class="small-btn" onclick="clearDates()">clear</button>
+            <span class="filter-label">sort:</span>
+            <select id="sort-select">
+              <option value="recent">most recent</option>
+              <option value="oldest">oldest first</option>
+              <option value="longest">most messages</option>
+              <option value="relevance">relevance</option>
+            </select>
+          </div>
         </div>
 
         <div class="tag-filter" id="tag-filter-row" style="display: none;">
@@ -1097,15 +1205,17 @@ Apr 14, 2026</div>
           <div id="tag-filter-chips"></div>
         </div>
 
-        <div class="sort-row">
-          <span class="filter-label">sort:</span>
-          <select id="sort-select">
-            <option value="recent">most recent</option>
-            <option value="oldest">oldest first</option>
-            <option value="longest">most messages</option>
-            <option value="relevance">relevance</option>
-          </select>
+        <div class="ticker">
+          <span><b id="stat-convs">880</b> conversations</span>
+          <span><b id="stat-msgs">38,582</b> messages</span>
+          <span><b id="stat-words">0</b> words</span>
+          <span><b id="stat-files">0</b> files</span>
+          <span id="stat-dates">Jan 24, 2025 – Apr 14, 2026</span>
+          <span class="ticker-timeline">
+            activity <span class="timeline-bar" id="timeline-bar"></span>
+          </span>
         </div>
+        <div class="tl-labels" id="tl-labels"></div>
 
         <div class="results-header" id="results-header"></div>
         <div class="conversation-list" id="list-area"></div>
@@ -2365,7 +2475,7 @@ Apr 14, 2026</div>
           .sort();
         if (times.length >= 2)
           document.getElementById('stat-dates').textContent =
-            formatDate(times[0]) + '\n' + formatDate(times[times.length - 1]);
+            formatDate(times[0]) + ' – ' + formatDate(times[times.length - 1]);
         document.getElementById('loaded-files-area').innerHTML = [
           ...loadedFileNames,
         ]

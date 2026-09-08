@@ -1,17 +1,16 @@
 # In Your Base
 
-A personal, local-only browser for your own exported data. Import the
-`.json` files ChatGPT and Claude give you, or JSON exports from other
-sources through a generic best-effort reader — then search, filter, tag,
-and read back through it, entirely on your own device.
+A personal, local-only browser for your own exported data. Drop in any
+`.json` file and it detects the file type automatically — then search,
+filter, tag, and read back through it, entirely on your own device.
 
 ## What it does
 
-- **Imports** ChatGPT and Claude.ai export files precisely, and falls back
-  to a generic reader for other JSON exports — an array of turns with a
-  role-like field and a text-like field, under whatever names that export
-  happens to use. What it can't confidently read, it skips rather than
-  guesses at.
+- **Detects the file type automatically.** ChatGPT and Claude.ai exports
+  are read precisely; anything else falls back to a generic reader — an
+  array of turns with a role-like field and a text-like field, under
+  whatever names that export happens to use. What it can't confidently
+  read, it skips rather than guesses at.
 - **Searches and filters** by keyword, platform, date range, and your own
   tags. The platform filter isn't fixed to two values — it's built from
   whatever's actually present in what you've loaded.

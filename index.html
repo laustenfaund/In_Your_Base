@@ -1810,10 +1810,10 @@
       }
 
       // {conversations: [...]} is the one shape both ChatGPT and Claude
-      // exports use. A generic export — turn-shaped or not — is just as
-      // likely to wrap its list under some other name (contacts, items,
-      // bookmarks, entries...), so the common names are tried first for
-      // stability, then whatever's own first non-empty array.
+      // exports use. Any other export is just as likely to wrap its list
+      // under some other name (contacts, items, bookmarks, entries...), so
+      // the common names are tried first for stability, then whatever's
+      // own first non-empty array.
       function unwrapExportArray(data) {
         if (Array.isArray(data)) return data;
         if (!data || typeof data !== 'object') return [data];
@@ -1872,15 +1872,20 @@
           .map(([, v]) => (v && typeof v === 'object' ? JSON.stringify(v) : String(v)))
           .join(' ');
       }
-      // A record has no platform of its own the way a ChatGPT or Claude
-      // export does, so it's labeled from whichever of a few common field
-      // names the export used, or — more often — from the file it came in,
-      // which is usually named for what it is (expenses-export.json,
-      // contacts.json...).
+      // Labels a value that came back 'other' — nothing recognized, nothing
+      // declared — from the name of the file it came in instead, which is
+      // usually named for what it is (expenses-export.json, contacts.json,
+      // even a generic chat log named for whoever exported it). Applied
+      // uniformly regardless of what ended up inside the file, so the
+      // fallback behaves the same no matter what shape got detected.
+      function platformOrFilename(platform, fileName) {
+        if (platform !== 'other') return platform;
+        return slugifyPlatform(String(fileName || '').replace(/\.json$/i, ''));
+      }
+
       function recordPlatform(conv, fileName) {
         const explicit = conv.platform || conv.source || conv.provider;
-        if (explicit) return slugifyPlatform(explicit);
-        return slugifyPlatform(String(fileName || '').replace(/\.json$/i, ''));
+        return platformOrFilename(explicit ? slugifyPlatform(explicit) : 'other', fileName);
       }
 
       function parseFile(data, fileName) {
@@ -1899,8 +1904,8 @@
           } else if (!isChatGPTShaped(conv)) {
             // Generic branch: fill in the same handful of fields from
             // whichever of several common names the export actually used —
-            // shared by turn-shaped generic exports and by plain records,
-            // since neither is known yet at this point.
+            // shared by every kind of item this branch might turn out to
+            // hold, since which kind isn't known yet at this point.
             if (!conv.id) conv.id = conv.uuid || conv.conversation_id || Math.random().toString(36);
             if (!conv.title)
               conv.title =
@@ -1934,7 +1939,7 @@
             conversations.push({
               id,
               title: conv.title || 'Untitled record',
-              platform: detectPlatform(conv),
+              platform: platformOrFilename(detectPlatform(conv), fileName),
               created,
               updated,
               kind: 'chat',
@@ -1947,9 +1952,9 @@
             });
             continue;
           }
-          // Not shaped like a back-and-forth exchange. Rather than drop it,
-          // read it as a plain record of whatever fields it actually has —
-          // as long as it had some to begin with, and at least one of them
+          // No readable messages. Rather than drop it, read it as a record
+          // of whatever fields it actually has — as long as it had some to
+          // begin with, and at least one of them
           // survives past the fields the parser might have added itself.
           if (!hadOwnFields) continue;
           // Same reasoning as title: an id the parser just made up (nothing
@@ -3188,9 +3193,8 @@
         </ol>
         <div class="note">
           <p class="note-label">What In Your Base actually reads</p>
-          <p>ChatGPT's export stores each item as a tree of linked message nodes; In Your Base walks that tree from root to the last child at each step to reconstruct the exchange, then strips ChatGPT's inline citation markers out of the text. Claude.ai's export stores each item as a flat list of messages instead, and In Your Base reads that shape directly too. Neither of those two shapes matched? It falls back to a generic reader that looks for an array of turns with something role-like (<code>role</code>/<code>author</code>/<code>sender</code>) and something text-like (<code>text</code>/<code>content</code>/<code>message</code>/<code>body</code>) on each one — common enough that a lot of simple exports land in it, whatever produced them, even with different exact field names.</p>
-          <p>A file that isn't shaped like a back-and-forth exchange at all is still read — just as a plain record instead of a thread. Whatever top-level fields the item actually has (amount, category, vendor, url, whatever the export calls its own data) become that record's fields: a few short ones show right on the card, and expanding it lays out every field it has as a table, nested objects and arrays included, printed as-is rather than summarized. Only a genuinely empty item — nothing to call a field at all — is skipped rather than added as blank. All three recognized shapes, plus this one, land in the same archive and the same search.</p>
-          <p>Platform is detected from the file's own shape: a Claude.ai–shaped file is always labeled <span class="tagpill">claude</span>; a ChatGPT-shaped file is labeled <span class="tagpill">claude</span> only when its recorded model name contains "claude" (useful for aggregated or multi-model exports), and <span class="tagpill">chatgpt</span> otherwise. Anything read by the generic fallback is labeled from whatever the file itself says its source is (a <code>platform</code>/<code>source</code>/<code>provider</code>/<code>model</code> field), or <span class="tagpill">other</span> if it doesn't say. A plain record works the same way, minus the <code>model</code> field — and if the file doesn't say its own source, it's labeled from the file's own name instead of falling back to "other" (an <code>expenses.json</code> full of receipts is labeled <span class="tagpill">expenses</span>). The platform filter row builds itself from whatever labels actually turn up in your loaded archive — it isn't fixed to two.</p>
+          <p>ChatGPT's export stores each item as a tree of linked message nodes; In Your Base walks that tree from root to the last child at each step to reconstruct it in order, then strips ChatGPT's inline citation markers out of the text. Claude.ai's export stores each item as a flat list instead, and In Your Base reads that directly. Anything else is read from whatever fields and structure it actually has, nothing invented or guessed at, and shown the way that fits it. Only a genuinely empty item — nothing there to read at all — is skipped.</p>
+          <p>Platform is detected from the file's own data: a recognized ChatGPT or Claude.ai export is labeled accordingly (an aggregated export covering both is told apart by the model name each item records); anything else is labeled from whatever the file itself says its own source is (a <code>platform</code>/<code>source</code>/<code>provider</code> field), or — if it doesn't say — from the name of the file itself (an <code>expenses.json</code> full of receipts is labeled <span class="tagpill">expenses</span>). The platform filter row builds itself from whatever labels actually turn up in your loaded archive — it isn't fixed to any particular set.</p>
         </div>
         <p>Only files ending in <code>.json</code> are accepted by drag-and-drop; anything else dropped onto the zone is quietly ignored.</p>
       </section>
@@ -3211,8 +3215,8 @@
       <section id="browsing">
         <p class="sec-num">03</p>
         <h2>Browsing your records</h2>
-        <p>Results appear as a grid of cards, one per record, newest first by default. What a card shows depends on what it holds: a chat-shaped record gets the title, source, message count, and a preview drawn from the first user message; a plain record — a striped left edge marks these — gets the title, source, field count, and a few of its own short fields printed right on the card. Click anywhere on the card to expand it, and click again to collapse it.</p>
-        <p>An expanded chat-shaped record opens into its full thread, messages labeled by who sent them; a message longer than 1,200 characters is cut off with a <span class="ui">show full message (N more chars)</span> button beneath it — click it to reveal the rest in place. An expanded plain record opens into a table instead, one row per field it has — nested objects and arrays print as formatted text inside their row rather than as a further table.</p>
+        <p>Results appear as a grid of cards, one per record, newest first by default. Each card shows the title, the source, and a little of what it actually holds — a short preview, or a few of its own fields, whichever fits. Click anywhere on the card to expand it, and click again to collapse it.</p>
+        <p>An expanded card lays out everything the record has, however it's structured: every message in order and labeled by who sent it, or every field as its own row. A message longer than 1,200 characters is cut off with a <span class="ui">show full message (N more chars)</span> button beneath it — click it to reveal the rest in place; a nested field prints as formatted text inside its own row rather than a further table.</p>
         <p>Results are paginated at 25 records per page, with <span class="ui">prev</span> / <span class="ui">next</span> controls and a page counter at the bottom of the list. Changing page scrolls you back to the top.</p>
       </section>
 
@@ -3226,7 +3230,7 @@
         <p class="sec-num">05</p>
         <h2>Searching</h2>
         <p>Type a word or phrase into the search box and press <kbd>Enter</kbd> to add it as a search term. You can add several terms this way — each becomes its own removable chip above the results, and <span class="ui">clear</span> removes all of them at once.</p>
-        <p>A search checks each record's title, and then whatever it has instead of prose: for a chat-shaped record, its preview snippet and the text of every message; for a plain record, the value of every field it has. A title match counts for more than a body match when ranking results, so a term that names the record tends to surface it first under Relevance sort.</p>
+        <p>A search checks each record's title and everything else it holds — message text, a preview, field values, whatever's actually there. A title match counts for more than a body match when ranking results, so a term that names the record tends to surface it first under Relevance sort.</p>
         <p>Once you have two or more terms, a match-mode row appears:</p>
         <div class="tablewrap">
         <table>
@@ -3295,7 +3299,7 @@
           <p class="note-label">What this changes about privacy</p>
           <p>Everything else in In Your Base stays local — this is the one feature that leaves the browser. Once you provide a key, each message you send is sent, along with the brief and whatever the assistant chooses to read from your archive, directly from this browser to <code>api.anthropic.com</code>. Nothing passes through any server of ours — the request goes straight from your device to Anthropic's, the same as if you'd built this against their API yourself. The key is stored in this browser's local database, next to the rest of your archive; the <span class="ui">change key</span> button clears it.</p>
         </div>
-        <p>The assistant works by calling tools that mirror the app's own controls — filtering by platform, date, and tag; keyword-scoring across a scoped set; reading one record's full content (messages for a chat-shaped record, every field for a plain one); and recording a short quote-plus-note finding — so it follows the brief's own phases (scope, catalog, flag, read, record) instead of reading everything at once. Once a record's full content has had one extra round to be acted on, it's dropped from what gets resent to Anthropic on later rounds of the same session, replaced by a short placeholder — the recorded findings are what's kept instead, so token spend doesn't keep climbing every round a long search runs. A <span class="ui">model</span> dropdown trades capability for cost, and an <span class="ui">effort</span> dropdown does the same for how much the model reasons before answering — both are yours to dial down, since it's your key being billed.</p>
+        <p>The assistant works by calling tools that mirror the app's own controls — filtering by platform, date, and tag; keyword-scoring across a scoped set; reading one record's full content; and recording a short quote-plus-note finding — so it follows the brief's own phases (scope, catalog, flag, read, record) instead of reading everything at once. Once a record's full content has had one extra round to be acted on, it's dropped from what gets resent to Anthropic on later rounds of the same session, replaced by a short placeholder — the recorded findings are what's kept instead, so token spend doesn't keep climbing every round a long search runs. A <span class="ui">model</span> dropdown trades capability for cost, and an <span class="ui">effort</span> dropdown does the same for how much the model reasons before answering — both are yours to dial down, since it's your key being billed.</p>
         <p>While a message is in flight, <span class="ui">send</span> turns into <span class="ui">stop</span> — click it to cancel the request outright, rather than waiting it out. <span class="ui">clear chat</span> wipes the conversation, including everything the assistant has read or remembered so far this session, so your next message starts with no leftover context.</p>
         <div class="warn">
           <p class="note-label">Usage is billed to your key</p>
@@ -3327,7 +3331,7 @@
           <tbody>
             <tr>
               <td>A file imports but adds zero records</td>
-              <td>Files exported directly from ChatGPT or Claude.ai should always work. Anything else is read either as a plain record (see <a href="#import">Importing your data</a>) or, if it happens to look turn-shaped, through the generic reader — which needs an array of turns with a recognizable role and text field on each one, and drops a turn-shaped item entirely only if every message's role is something like "system" that isn't mapped to user/assistant. The remaining way to end up with nothing added is an item with no fields at all — a genuinely empty <code>{}</code>.</td>
+              <td>Files exported directly from ChatGPT or Claude.ai should always work, and almost anything else is read as some kind of record too (see <a href="#import">Importing your data</a>). The one way to end up with nothing added is an item with no fields at all — a genuinely empty <code>{}</code>.</td>
             </tr>
             <tr>
               <td>A ChatGPT export you expected to be tagged Claude shows as ChatGPT</td>

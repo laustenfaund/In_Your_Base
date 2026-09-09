@@ -7,16 +7,12 @@ filter, tag, and read back through it, entirely on your own device.
 ## What it does
 
 - **Detects the file type automatically.** ChatGPT and Claude.ai exports
-  are read precisely; anything shaped like a back-and-forth exchange —
-  an array of turns with a role-like field and a text-like field, under
-  whatever names that export happens to use — is read the same way. Anything
-  else is read as a plain record instead of a thread: whatever fields it
-  actually has become that record's fields, shown on the card and laid out
-  as a table when you open it. Only a genuinely empty item is skipped.
+  are read with full fidelity. Anything else is read from whatever fields
+  and structure it actually has — nothing invented or guessed at — and
+  shown the way that fits it. Only a completely empty item is skipped.
 - **Searches and filters** by keyword, platform, date range, and your own
-  tags — across both conversations and plain records. The platform filter
-  isn't fixed to two values — it's built from whatever's actually present
-  in what you've loaded.
+  tags, across everything you've loaded. The platform filter isn't fixed
+  to a couple of values — it's built from whatever's actually present.
 - **Timeline** view of activity by month.
 - **A search brief** — a written procedure meant to be handed to an AI
   assistant, describing how to work through a large personal data set

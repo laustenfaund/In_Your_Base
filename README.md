@@ -4,6 +4,16 @@ A personal, local-only browser for your own exported data. Drop in any
 `.json` file and it detects the file type automatically — then search,
 filter, tag, and read back through it, entirely on your own device.
 
+## Try it
+
+**[laustenfaund.github.io/In_Your_Base](https://laustenfaund.github.io/In_Your_Base/)** (bring your own Anthropic API key for the assistant) · **[hosted version](https://laustenfaund.github.io/In_Your_Base/hosted/)** (passcode) · [Source](https://github.com/laustenfaund/In_Your_Base)
+
+The hosted version's page is live, but its assistant proxy isn't deployed
+yet — `ASSISTANT_PROXY_URL` in `hosted/index.html` is still the placeholder
+from `worker/README.md`. Everything else (import, search, filter, tag,
+browse) works the same on both; deploy the Worker to turn the hosted
+assistant on.
+
 ## What it does
 
 - **Detects the file type automatically.** Recognized export formats are
@@ -40,9 +50,9 @@ re-importing them is how you'd rebuild it elsewhere.
 
 ## Usage
 
-Download `index.html` and open it in a browser — double-click works, no
-install or build step needed. The in-app **manual** button covers every
-feature in detail once it's open.
+Use the live link above, or download `index.html` and open it in a browser
+directly — double-click works, no install or build step needed either way.
+The in-app **manual** button covers every feature in detail once it's open.
 
 ## The hosted variant
 
@@ -57,17 +67,13 @@ proxy; the UI is otherwise identical to the plain version above.
 
 ## Installing on your phone
 
-This app is installable as a PWA (Progressive Web App) once hosted somewhere
-over `https://` — e.g. GitHub Pages. `manifest.json`, `sw.js`, and `icons/`
-give it a name, an app icon, and a minimal offline shell cache so it behaves
-like a real app on your home screen instead of just a bookmark.
+Both links above are installable as a PWA (Progressive Web App) —
+`manifest.json`, `sw.js`, and `icons/` (each variant has its own) give it a
+name, an app icon, and a minimal offline shell cache so it behaves like a
+real app on your home screen instead of just a bookmark.
 
-1. Make sure this repo is public (Settings → Danger Zone → Change
-   visibility), then enable GitHub Pages (Settings → Pages → Deploy from
-   branch → `main` → `/` root).
-2. Once it's live, open `https://<your-username>.github.io/<repo-name>/`
-   on your phone — not the repo's `github.com` page.
-3. Use your browser's "Add to Home Screen" / "Install app" option.
+Open the live link on your phone — not the repo's `github.com` page — and
+use your browser's "Add to Home Screen" / "Install app" option.
 
 ## License
 

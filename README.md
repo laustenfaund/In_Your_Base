@@ -6,8 +6,8 @@ filter, tag, and read back through it, entirely on your own device.
 
 ## What it does
 
-- **Detects the file type automatically.** ChatGPT and Claude.ai exports
-  are read with full fidelity. Anything else is read from whatever fields
+- **Detects the file type automatically.** Recognized export formats are
+  read with full fidelity. Anything else is read from whatever fields
   and structure it actually has — nothing invented or guessed at — and
   shown the way that fits it. Only a completely empty item is skipped.
 - **Searches and filters** by keyword, platform, date range, and your own

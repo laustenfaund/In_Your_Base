@@ -7,7 +7,7 @@ compatibility_date = "2025-01-01"
 # slash). Requests from any other Origin are rejected before the passcode
 # is even checked. Example: "https://yourname.github.io"
 [vars]
-ALLOWED_ORIGIN = "https://yourname.github.io"
+ALLOWED_ORIGIN = "https://laustenfaund.github.io"
 
 # Cents, not dollars. $10.00/day per passcode, $40.00/month total.
 # Sized for multi-turn tool-calling (search/read the archive) — one user

@@ -9,7 +9,8 @@ filter, tag, and read back through it, entirely on your own device.
 - **Detects the file type automatically.** Recognized export formats are
   read with full fidelity. Anything else is read from whatever fields
   and structure it actually has — nothing invented or guessed at — and
-  shown the way that fits it. Only a completely empty item is skipped.
+  shown the way that fits it. The only items left out are a completely
+  empty one, or one that's already in your archive.
 - **Searches and filters** by keyword, platform, date range, and your own
   tags, across everything you've loaded. The platform filter isn't fixed
   to a couple of values — it's built from whatever's actually present.

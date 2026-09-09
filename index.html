@@ -3311,7 +3311,7 @@
         </ol>
         <div class="note">
           <p class="note-label">What In Your Base actually reads</p>
-          <p>A handful of export formats have a known, fixed structure — a linked tree of message nodes, or a flat list — and those are read with full precision, reconstructed in order with any inline formatting artifacts cleaned out of the text. Anything else is read from whatever fields and structure it actually has, nothing invented or guessed at, and shown the way that fits it. Only a genuinely empty item — nothing there to read at all — is skipped.</p>
+          <p>A handful of export formats have a known, fixed structure — a linked tree of message nodes, or a flat list — and those are read with full precision, reconstructed in order with any inline formatting artifacts cleaned out of the text. Anything else is read from whatever fields and structure it actually has, nothing invented or guessed at, and shown the way that fits it. Only two things get left out: a genuinely empty item — nothing there to read at all — and one whose id is already in your archive.</p>
           <p>Platform is detected from the file's own data: a file with a known, fixed structure is labeled by that structure's actual source (an export aggregating more than one source is told apart by the model name each item records); anything else is labeled from whatever the file itself says its own source is (a <code>platform</code>/<code>source</code>/<code>provider</code> field), or — if it doesn't say — from the name of the file itself (an <code>expenses.json</code> full of receipts is labeled <span class="tagpill">expenses</span>). The platform filter row builds itself from whatever labels actually turn up in your loaded archive — it isn't fixed to any particular set.</p>
         </div>
         <p>Only files ending in <code>.json</code> are accepted by drag-and-drop; anything else dropped onto the zone is quietly ignored.</p>
@@ -3450,7 +3450,7 @@
           <tbody>
             <tr>
               <td>A file imports but adds zero records</td>
-              <td>A file with a recognized, fixed export structure should always work, and almost anything else is read as some kind of record too (see <a href="#import">Importing your data</a>). The one way to end up with nothing added is an item with no fields at all — a genuinely empty <code>{}</code>.</td>
+              <td>A file with a recognized, fixed export structure should always work, and almost anything else is read as some kind of record too (see <a href="#import">Importing your data</a>). The two ways to end up with nothing added: an item with no fields at all — a genuinely empty <code>{}</code> — or a file whose items are all already in your archive (see below).</td>
             </tr>
             <tr>
               <td>Dropping a file does nothing</td>

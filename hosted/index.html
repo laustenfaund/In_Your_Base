@@ -841,6 +841,14 @@
         border-radius: 6px;
         white-space: pre-wrap;
       }
+      /* Shown in place of a table or a thread when a card has been
+         switched to a view its own data doesn't actually support. */
+      .view-empty-note {
+        padding: 16px 1.25rem 1.25rem;
+        font-size: 12.5px;
+        color: var(--text3);
+        font-style: italic;
+      }
 
       /* Tags on card */
       .conv-tags-row {
@@ -1780,11 +1788,13 @@
         if (!r) return null;
         return GENERIC_ROLE_SYNONYMS[String(r).toLowerCase()] || null;
       }
-      function extractGenericMessages(conv) {
-        const arr = ['messages', 'turns', 'dialogue', 'dialog', 'history']
-          .map((k) => conv[k])
-          .find((v) => Array.isArray(v));
-        if (!arr) return [];
+      // Reads any array as a list of role+text turns, the same way for
+      // whichever field it came from — the fixed handful of common names
+      // extractGenericMessages checks below, or (see bestEffortMessagesFromFields
+      // further down) any other field at all, when a person manually
+      // points at one that was missed.
+      function extractMessagesFromArray(arr) {
+        if (!Array.isArray(arr)) return [];
         const out = [];
         for (const m of arr) {
           if (!m || typeof m !== 'object') continue;
@@ -1805,6 +1815,12 @@
           out.push({ role, text, create_time: time });
         }
         return out;
+      }
+      function extractGenericMessages(conv) {
+        const arr = ['messages', 'turns', 'dialogue', 'dialog', 'history']
+          .map((k) => conv[k])
+          .find((v) => Array.isArray(v));
+        return arr ? extractMessagesFromArray(arr) : [];
       }
 
       function extractMessages(conv) {
@@ -1876,6 +1892,23 @@
           .map(([, v]) => (v && typeof v === 'object' ? JSON.stringify(v) : String(v)))
           .join(' ');
       }
+      // Used only when a record is manually switched to the other view and
+      // has no messages of its own (extraction already came up empty, or
+      // it never had any) — a second attempt, checking every field it has
+      // for something readable instead of just the handful of common names
+      // extractGenericMessages checks by default. Picks whichever field
+      // yields the most turns, on the theory that a genuine list of
+      // exchanges will out-score any other array the record happens to
+      // have.
+      function bestEffortMessagesFromFields(entries) {
+        let best = [];
+        for (const [, v] of entries) {
+          if (!Array.isArray(v) || !v.length) continue;
+          const msgs = extractMessagesFromArray(v);
+          if (msgs.length > best.length) best = msgs;
+        }
+        return best;
+      }
       // Labels a value that came back 'other' — nothing recognized, nothing
       // declared — from the name of the file it came in instead, which is
       // usually named for what it is (expenses-export.json, contacts.json,
@@ -1931,59 +1964,50 @@
           const messages = extractMessages(conv);
           const created = conv.create_time || 0,
             updated = conv.update_time || created;
-          if (messages.length) {
-            const wordCount = messages.reduce(
-              (s, m) => s + m.text.split(/\s+/).length,
-              0
-            );
-            const preview =
-              messages.find((m) => m.role === 'user')?.text?.slice(0, 150) ||
-              messages[0]?.text?.slice(0, 150) ||
-              '';
-            conversations.push({
-              id,
-              title: conv.title || 'Untitled record',
-              platform: platformOrFilename(detectPlatform(conv), fileName),
-              created,
-              updated,
-              kind: 'chat',
-              messages,
-              preview,
-              sourceFile: fileName,
-              model: conv.default_model_slug || '',
-              wordCount,
-              messageCount: messages.length,
-            });
-            continue;
-          }
-          // No readable messages. Rather than drop it, read it as a record
-          // of whatever fields it actually has — as long as it had some to
-          // begin with, and at least one of them
-          // survives past the fields the parser might have added itself.
-          if (!hadOwnFields) continue;
-          // Same reasoning as title: an id the parser just made up (nothing
-          // in the file had one) is bookkeeping, not data — excluded here
-          // too rather than shown as if the file provided it.
-          const entries = recordFieldEntries(conv, hadId ? null : new Set(['id']));
-          if (!entries.length) continue;
+          // Every item's own fields are read regardless of whether it also
+          // read as messages — not just for the ones that don't have any —
+          // so a card can be switched to show its fields even when it read
+          // fine as messages, and the reverse switch (see
+          // bestEffortMessagesFromFields) has something to search besides
+          // the fixed handful of common names. Same reasoning as title: an
+          // id the parser just made up (nothing in the file had one) is
+          // bookkeeping, not data — excluded here too.
+          const entries = hadOwnFields
+            ? recordFieldEntries(conv, hadId ? null : new Set(['id']))
+            : [];
+          if (!messages.length && !entries.length) continue; // nothing here at all
           const fieldText = flattenFieldsForSearch(entries);
+          const kind = messages.length ? 'chat' : 'record';
+          const wordCount = messages.length
+            ? messages.reduce((s, m) => s + m.text.split(/\s+/).length, 0)
+            : fieldText
+            ? fieldText.split(/\s+/).length
+            : 0;
+          const preview = messages.length
+            ? messages.find((m) => m.role === 'user')?.text?.slice(0, 150) ||
+              messages[0]?.text?.slice(0, 150) ||
+              ''
+            : '';
           conversations.push({
             id,
             title: conv.title || 'Untitled record',
-            platform: recordPlatform(conv, fileName),
+            platform:
+              kind === 'chat'
+                ? platformOrFilename(detectPlatform(conv), fileName)
+                : recordPlatform(conv, fileName),
             created,
             updated,
-            kind: 'record',
+            kind,
+            messages,
+            preview,
+            sourceFile: fileName,
+            model: conv.default_model_slug || '',
+            wordCount,
+            messageCount: messages.length,
             fields: entries,
             topFields: pickTopFields(entries),
             fieldCount: entries.length,
             fieldText,
-            messages: [],
-            preview: '',
-            sourceFile: fileName,
-            model: '',
-            wordCount: fieldText ? fieldText.split(/\s+/).length : 0,
-            messageCount: 0,
           });
         }
         return conversations;
@@ -2123,7 +2147,7 @@
 
       function scoreConv(conv, terms, mode) {
         if (!terms.length) return 1;
-        const fieldText = conv.kind === 'record' ? (conv.fieldText || '').toLowerCase() : '';
+        const fieldText = (conv.fieldText || '').toLowerCase();
         if (mode === 'exact') {
           const p = terms.join(' ').toLowerCase();
           let s = 0;
@@ -2441,7 +2465,28 @@
         list.innerHTML = slice
           .map((conv, i) => {
             const gIdx = start + i;
-            const isRecord = conv.kind === 'record';
+            const effectiveKind = conv.viewAs || conv.kind;
+            const isRecord = effectiveKind === 'record';
+            // A card switched away from how it actually read doesn't have
+            // real data for the new view — messages for a record with
+            // nothing message-shaped in its own fields, or fields for a
+            // conversation that turned out to have none beyond what's
+            // already blocklisted — so it's worked out here rather than
+            // trusting the fields the parser filled in for the other view.
+            let viewMessages = conv.messages,
+              viewWordCount = conv.wordCount,
+              viewPreview = conv.preview;
+            if (effectiveKind === 'chat' && !conv.messages.length) {
+              viewMessages = bestEffortMessagesFromFields(conv.fields);
+              viewWordCount = viewMessages.reduce(
+                (s, m) => s + m.text.split(/\s+/).length,
+                0
+              );
+              viewPreview =
+                viewMessages.find((m) => m.role === 'user')?.text?.slice(0, 150) ||
+                viewMessages[0]?.text?.slice(0, 150) ||
+                '';
+            }
             const tags = userTags[conv.id] || [];
             const sw = searchTerms.length
               ? Math.round(((conv._score || 0) / maxScore) * 100)
@@ -2452,8 +2497,8 @@
             const platLabel = platformLabel(conv.platform);
             const bodyMeta = isRecord
               ? `<span>${conv.fieldCount} field${conv.fieldCount === 1 ? '' : 's'}</span>`
-              : `<span>${conv.messageCount} msgs</span>
-            <span>${Math.round(conv.wordCount / 100) / 10}k words</span>
+              : `<span>${viewMessages.length} msgs</span>
+            <span>${Math.round(viewWordCount / 100) / 10}k words</span>
             ${conv.model ? `<span>${esc(conv.model)}</span>` : ''}`;
             const bodyPreview = isRecord
               ? conv.topFields.length
@@ -2468,15 +2513,16 @@
                     )
                     .join('')}</div>`
                 : ''
-              : conv.preview
+              : viewPreview
               ? `<div class="conv-preview">${hlText(
-                  conv.preview.slice(0, 120),
+                  viewPreview.slice(0, 120),
                   searchTerms,
                   ''
                 )}</div>`
               : '';
             const expandedBody = isRecord
-              ? `<div class="record-table">
+              ? conv.fields.length
+                ? `<div class="record-table">
           ${conv.fields
             .map(([k, v]) => {
               const nested = v && typeof v === 'object';
@@ -2488,7 +2534,9 @@
             })
             .join('')}
         </div>`
-              : `<div class="thread-search-bar">
+                : `<div class="view-empty-note">Nothing else in this record.</div>`
+              : viewMessages.length
+              ? `<div class="thread-search-bar">
           <input type="text" placeholder="Search within this thread..."
             oninput="onThreadInput(${convIdJs},'${sid}','${mcid}',this.value)"
             onkeydown="if(event.key==='Enter')onThreadNav(${convIdJs},'${sid}','${mcid}',1)">
@@ -2497,7 +2545,7 @@
           <button class="thread-nav" onclick="onThreadNav(${convIdJs},'${sid}','${mcid}',1)" title="next match">↓</button>
         </div>
         <div class="messages-scroll" id="${sid}">
-          ${conv.messages
+          ${viewMessages
             .map(
               (m, mi) => `
             <div class="message" id="${sid}-msg-${mi}">
@@ -2513,7 +2561,8 @@
             </div>`
             )
             .join('')}
-        </div>`;
+        </div>`
+              : `<div class="view-empty-note">Nothing in this record's own fields reads as a list of messages.</div>`;
             return `<div class="conv-card${isRecord ? ' record' : ''}" id="conv-${gIdx}">
       <div class="conv-top" onclick="toggleConv(${convIdJs},${gIdx})">
         <div style="flex:1;min-width:0">
@@ -2543,6 +2592,9 @@
           )
           .join('')}
         <button class="add-tag-btn" onclick="showTagInput(${convIdJs},${gIdx})">+ tag</button>
+        <button class="add-tag-btn" onclick="toggleRecordView(${convIdJs},${gIdx})" title="Switch how this one card is shown">${
+          isRecord ? 'view as messages' : 'view as fields'
+        }</button>
         <div class="tag-input-row" id="tag-input-${gIdx}" style="display:none">
           <input type="text" placeholder="tag name" id="tag-val-${gIdx}" onkeydown="if(event.key==='Enter'){submitTag(${convIdJs},${gIdx})}" maxlength="30">
           <button class="small-btn" onclick="submitTag(${convIdJs},${gIdx})">add</button>
@@ -2575,6 +2627,28 @@
 
       function toggleConv(convId, gIdx) {
         document.getElementById(`conv-${gIdx}`).classList.toggle('expanded');
+      }
+
+      // The one correction available when a record reads as the wrong
+      // kind of thing — automatic detection is a best guess for anything
+      // that isn't a known export format, and no guess is right every
+      // time. Flips just this one card, saved so it stays flipped next
+      // time the archive loads. Patches filteredConversations too, since
+      // a relevance-sorted list holds its own copies rather than the same
+      // objects as allConversations.
+      function toggleRecordView(convId, gIdx) {
+        const conv = allConversations.find((c) => c.id === convId);
+        if (!conv) return;
+        const current = conv.viewAs || conv.kind;
+        conv.viewAs = current === 'chat' ? 'record' : 'chat';
+        const fc = filteredConversations.find((c) => c.id === convId);
+        if (fc) fc.viewAs = conv.viewAs;
+        save();
+        const wasExpanded =
+          document.getElementById(`conv-${gIdx}`)?.classList.contains('expanded');
+        renderConversations();
+        if (wasExpanded)
+          document.getElementById(`conv-${gIdx}`)?.classList.add('expanded');
       }
 
       function rerenderTags(gIdx, convId) {
@@ -3221,6 +3295,7 @@
         <h2>Browsing your records</h2>
         <p>Results appear as a grid of cards, one per record, newest first by default. Each card shows the title, the source, and a little of what it actually holds — a short preview, or a few of its own fields, whichever fits. Click anywhere on the card to expand it, and click again to collapse it.</p>
         <p>An expanded card lays out everything the record has, however it's structured: every message in order and labeled by who sent it, or every field as its own row. A message longer than 1,200 characters is cut off with a <span class="ui">show full message (N more chars)</span> button beneath it — click it to reveal the rest in place; a nested field prints as formatted text inside its own row rather than a further table.</p>
+        <p>How a card is shown is a best guess from what's actually in the file, and a guess can be wrong — an export with an unusual field name might get read as fields when it's really a sequence of messages, or the reverse. A small <span class="ui">view as fields</span> / <span class="ui">view as messages</span> control next to each card's tags switches that one card by hand; the correction is remembered for next time. Switching a record to messages that genuinely doesn't have any says so rather than showing something blank.</p>
         <p>Results are paginated at 25 records per page, with <span class="ui">prev</span> / <span class="ui">next</span> controls and a page counter at the bottom of the list. Changing page scrolls you back to the top.</p>
       </section>
 
@@ -3514,7 +3589,7 @@
             platform: c.platform,
             date: c.updated || c.created ? formatDate(c.updated || c.created) : null,
             tags: userTags[c.id] || [],
-            ...(c.kind === 'record'
+            ...((c.viewAs || c.kind) === 'record'
               ? { fieldCount: c.fieldCount, topFields: c.topFields }
               : { preview: c.preview }),
           })),
@@ -3541,14 +3616,20 @@
         const conv = allConversations.find((c) => c.id === input.id);
         if (!conv)
           return { error: 'no record with that id in the loaded archive' };
+        const kind = conv.viewAs || conv.kind;
         return {
           id: conv.id,
           title: conv.title,
           platform: conv.platform,
           tags: userTags[conv.id] || [],
-          ...(conv.kind === 'record'
+          ...(kind === 'record'
             ? { fields: Object.fromEntries(conv.fields) }
-            : { messages: conv.messages.map((m) => ({ role: m.role, text: m.text })) }),
+            : {
+                messages: (conv.messages.length
+                  ? conv.messages
+                  : bestEffortMessagesFromFields(conv.fields)
+                ).map((m) => ({ role: m.role, text: m.text })),
+              }),
         };
       }
 

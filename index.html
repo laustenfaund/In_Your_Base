@@ -1839,9 +1839,14 @@
       const RECORD_INTERNAL_FIELDS = new Set([
         'create_time', 'update_time', 'default_model_slug', 'mapping', 'chat_messages', 'title',
       ]);
-      function recordFieldEntries(conv) {
+      function recordFieldEntries(conv, extraExclude) {
         return Object.keys(conv)
-          .filter((k) => !RECORD_INTERNAL_FIELDS.has(k) && conv[k] !== undefined)
+          .filter(
+            (k) =>
+              !RECORD_INTERNAL_FIELDS.has(k) &&
+              !(extraExclude && extraExclude.has(k)) &&
+              conv[k] !== undefined
+          )
           .map((k) => [k, conv[k]]);
       }
       // The handful of short, scalar fields shown right on the card —
@@ -1884,6 +1889,7 @@
         for (const conv of raw) {
           if (!conv || typeof conv !== 'object' || Array.isArray(conv)) continue;
           const hadOwnFields = Object.keys(conv).length > 0;
+          const hadId = 'id' in conv;
           if (Array.isArray(conv.chat_messages)) {
             if (!conv.id) conv.id = conv.uuid || conv.conversation_id || Math.random().toString(36);
             if (!conv.title) conv.title = conv.name || 'Untitled record';
@@ -1946,7 +1952,10 @@
           // as long as it had some to begin with, and at least one of them
           // survives past the fields the parser might have added itself.
           if (!hadOwnFields) continue;
-          const entries = recordFieldEntries(conv);
+          // Same reasoning as title: an id the parser just made up (nothing
+          // in the file had one) is bookkeeping, not data — excluded here
+          // too rather than shown as if the file provided it.
+          const entries = recordFieldEntries(conv, hadId ? null : new Set(['id']));
           if (!entries.length) continue;
           const fieldText = flattenFieldsForSearch(entries);
           conversations.push({

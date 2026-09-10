@@ -675,6 +675,27 @@
         border-radius: 999px;
         color: var(--text3);
         cursor: pointer;
+        white-space: nowrap;
+      }
+      /* Assistant modal header — title left, actions + close right, each
+         side wrapping onto its own line before anything inside squeezes
+         or spills past the modal edge. */
+      .assistant-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .assistant-header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .assistant-header-actions {
+        gap: 8px;
+        flex-wrap: wrap;
       }
       .small-btn:hover {
         color: var(--text);
@@ -1150,6 +1171,7 @@
         background: var(--bg3);
         color: var(--text);
         outline: none;
+        max-width: 100%;
       }
       .assistant-field:focus {
         border-color: var(--accent);
@@ -1470,12 +1492,18 @@
           gap: 12px;
           font-family: var(--sans);
         ">
-        <div style="display: flex; align-items: center; justify-content: space-between">
+        <div class="assistant-header-row">
           <div style="font-weight: 600">
             AI Assistant
             <span style="font-family: var(--mono); font-size: 11px; color: var(--text3); font-weight: 400">— hosted, passcode-gated</span>
           </div>
-          <button id="assistant-close-btn" class="add-files-btn">close</button>
+          <div class="assistant-header-right">
+            <div id="assistant-header-actions" class="assistant-header-actions" style="display: none">
+              <button id="assistant-clear-chat-btn" class="small-btn">clear chat</button>
+              <button id="assistant-change-key-btn" class="small-btn">change passcode</button>
+            </div>
+            <button id="assistant-close-btn" class="add-files-btn">close</button>
+          </div>
         </div>
 
         <div id="assistant-setup" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 12px; overflow-y: auto;">
@@ -1490,7 +1518,7 @@
         </div>
 
         <div id="assistant-chat" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 10px;">
-          <div style="display: flex; gap: 8px; align-items: center">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <span class="filter-label">model:</span>
             <select id="assistant-model-select" class="assistant-field" style="padding: 5px 8px; font-size: 12px; font-family: var(--mono); cursor: pointer;">
               <option value="claude-sonnet-5" selected>Claude Sonnet 5 — balanced (default)</option>
@@ -1503,8 +1531,6 @@
               <option value="medium">medium</option>
               <option value="low">low</option>
             </select>
-            <button id="assistant-clear-chat-btn" class="small-btn" style="margin-left: auto">clear chat</button>
-            <button id="assistant-change-key-btn" class="small-btn">change passcode</button>
           </div>
           <div id="assistant-messages" class="messages-scroll" style="flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem;"></div>
           <div style="display: flex; gap: 8px; align-items: flex-end">
@@ -4023,13 +4049,22 @@
               .map((b) => b.text)
               .join('\n\n');
             if (textBlocks) renderAssistantTurn('assistant', textBlocks);
-            if (resp.stop_reason !== 'tool_use') {
+            // Checked by content, not stop_reason: a response can hold a
+            // completed tool_use block while stopping for an unrelated
+            // reason (most likely max_tokens cutting it off right after).
+            // Answering only when stop_reason === 'tool_use' left that
+            // block dangling — unanswered in history — which the next API
+            // call then hard-rejects ("tool_use ids were found without
+            // tool_result blocks immediately after"), stuck until the chat
+            // is cleared. Every tool_use present gets a tool_result now,
+            // regardless of why the turn actually stopped.
+            const toolUseBlocks = resp.content.filter((b) => b.type === 'tool_use');
+            if (!toolUseBlocks.length) {
               stoppedReason = 'done';
               break;
             }
             const toolResults = [];
-            for (const block of resp.content) {
-              if (block.type !== 'tool_use') continue;
+            for (const block of toolUseBlocks) {
               assistantStatusLine(`→ ${block.name}(${JSON.stringify(block.input)})`);
               const result = executeAssistantTool(block.name, block.input);
               toolResults.push({
@@ -4058,17 +4093,28 @@
         }
       }
 
+      // clear chat / change passcode live in the modal's header once a chat
+      // is actually up — hidden during passcode entry, where they'd do
+      // nothing — so every place that flips setup/chat visibility flips
+      // this with it.
+      function setAssistantChatVisible(visible) {
+        document.getElementById('assistant-setup').style.display = visible
+          ? 'none'
+          : 'flex';
+        document.getElementById('assistant-chat').style.display = visible
+          ? 'flex'
+          : 'none';
+        document.getElementById('assistant-header-actions').style.display = visible
+          ? 'flex'
+          : 'none';
+      }
+
       document
         .getElementById('assistant-btn')
         .addEventListener('click', async () => {
           document.getElementById('assistant-overlay').style.display = 'flex';
           const key = await idbGet(PASSCODE_KEY);
-          document.getElementById('assistant-setup').style.display = key
-            ? 'none'
-            : 'flex';
-          document.getElementById('assistant-chat').style.display = key
-            ? 'flex'
-            : 'none';
+          setAssistantChatVisible(!!key);
         });
       document
         .getElementById('assistant-close-btn')
@@ -4088,15 +4134,13 @@
           if (!val) return;
           await idbSet(PASSCODE_KEY, val);
           document.getElementById('assistant-key-input').value = '';
-          document.getElementById('assistant-setup').style.display = 'none';
-          document.getElementById('assistant-chat').style.display = 'flex';
+          setAssistantChatVisible(true);
         });
       document
         .getElementById('assistant-change-key-btn')
         .addEventListener('click', async () => {
           await idbDelete(PASSCODE_KEY);
-          document.getElementById('assistant-chat').style.display = 'none';
-          document.getElementById('assistant-setup').style.display = 'flex';
+          setAssistantChatVisible(false);
         });
       document
         .getElementById('assistant-clear-chat-btn')

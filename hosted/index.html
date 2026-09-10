@@ -1499,6 +1499,7 @@
           </div>
           <div class="assistant-header-right">
             <div id="assistant-header-actions" class="assistant-header-actions" style="display: none">
+              <button id="assistant-copy-findings-btn" class="small-btn">copy findings</button>
               <button id="assistant-clear-chat-btn" class="small-btn">clear chat</button>
               <button id="assistant-change-key-btn" class="small-btn">change passcode</button>
             </div>
@@ -1537,6 +1538,44 @@
             <textarea id="assistant-input" class="assistant-field assistant-textarea" style="flex: 1" rows="1" placeholder="Tell it what you're looking for..."></textarea>
             <button id="assistant-send-btn" class="add-files-btn">send</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="findings-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 9999; align-items: center; justify-content: center;">
+      <div style="
+          background: var(--bg2);
+          color: var(--text);
+          border: 1px solid var(--border);
+          padding: 20px;
+          border-radius: var(--radius2);
+          width: 600px;
+          max-width: 90vw;
+          max-height: 80vh;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          font-family: var(--sans);
+        ">
+        <div style="font-weight: 600">Copy findings</div>
+        <div id="findings-status" style="font-size: 12.5px; color: var(--text3)">
+          The assistant's replies and recorded findings from this chat, as plain text — everything below is already selected, so Ctrl/Cmd+C copies it even if the button below can't.
+        </div>
+        <textarea id="findings-textarea" readonly style="
+            flex: 1;
+            min-height: 240px;
+            background: var(--bg3);
+            color: var(--text);
+            border: 1px solid var(--border2);
+            border-radius: var(--radius);
+            padding: 8px;
+            font-family: var(--mono);
+            font-size: 12.5px;
+            resize: vertical;
+          "></textarea>
+        <div style="display: flex; gap: 8px; justify-content: flex-end">
+          <button id="findings-close-btn" class="add-files-btn">close</button>
+          <button id="findings-copy-btn" class="add-files-btn">copy to clipboard</button>
         </div>
       </div>
     </div>
@@ -3527,6 +3566,7 @@
         </div>
         <p>The assistant works by calling tools that mirror the app's own controls — filtering by platform, date, and tag; keyword-scoring across a scoped set; reading one record's full content; and recording a short quote-plus-note finding — so it follows the brief's own phases (scope, catalog, flag, read, record) instead of reading everything at once. Once a record's full content has had one extra round to be acted on, it's dropped from what gets resent to Anthropic on later rounds of the same session, replaced by a short placeholder — the recorded findings are what's kept instead, so token spend doesn't keep climbing every round a long search runs. A <span class="ui">model</span> dropdown trades capability for cost, and an <span class="ui">effort</span> dropdown does the same for how much the model reasons before answering.</p>
         <p>While a message is in flight, <span class="ui">send</span> turns into <span class="ui">stop</span> — click it to cancel the request outright, rather than waiting it out. <span class="ui">clear chat</span> wipes the conversation, including everything the assistant has read or remembered so far this session, so your next message starts with no leftover context.</p>
+        <p><span class="ui">copy findings</span> compiles the session so far — every reply the assistant has given, plus a numbered list of whatever it's recorded as a finding along the way — into plain text in a read-only box, already selected so Ctrl/Cmd+C copies it by hand. It also tries to copy that text to your clipboard automatically the moment the box opens; if that's blocked (as it typically is when this page is opened as a local file rather than served over a real origin), the manual copy is the fallback, not an afterthought.</p>
         <div class="warn">
           <p class="note-label">Usage is capped, not unlimited</p>
           <p>Every message sent through the assistant is a real API call, billed to the app owner's key. The proxy enforces a per-passcode daily cap and a total monthly cap; once either is hit, the assistant stops responding until the cap resets rather than continuing to spend.</p>
@@ -3901,6 +3941,75 @@
         div.scrollIntoView({ block: 'end' });
       }
 
+      // Plain-text session summary for the "copy findings" button: every
+      // assistant text turn, read straight back out of assistantHistory
+      // (no separate tracking array to keep in sync), followed by a
+      // numbered list of whatever's been logged via record_finding.
+      // Nothing to compile yet is reported, not just an empty string, so
+      // the overlay never opens on a silently blank textarea.
+      function compileFindingsText() {
+        const textTurns = assistantHistory
+          .filter((m) => m.role === 'assistant' && Array.isArray(m.content))
+          .map((m) =>
+            m.content
+              .filter((b) => b.type === 'text')
+              .map((b) => b.text)
+              .join('\n\n')
+          )
+          .filter(Boolean);
+        let out = textTurns.join('\n\n');
+        if (assistantFindings.length) {
+          if (out) out += '\n\n';
+          out += `Findings (${assistantFindings.length}):\n`;
+          assistantFindings.forEach((f, i) => {
+            out += `\n${i + 1}. ${f.title || f.id}`;
+            if (f.quote) out += `\n   "${f.quote}"`;
+            out += `\n   ${f.note}\n`;
+          });
+        }
+        return out.trim() || 'Nothing to copy yet — ask the assistant something first.';
+      }
+
+      // One attempt to put the findings textarea's current content on the
+      // clipboard, updating the status line with the outcome either way.
+      // navigator.clipboard can be blocked outright — most commonly when
+      // this page is opened as a plain file:// document, which is a
+      // supported, expected way to run it, not an edge case — so the
+      // visible, pre-selected, read-only textarea is the real fallback:
+      // Ctrl/Cmd+C copies it by hand regardless of whether either API call
+      // here succeeds. execCommand('copy') is deprecated but still the
+      // only synchronous fallback with broad support for this exact case.
+      // Assumes the textarea is already focused and selected — both call
+      // sites below do that themselves, right before calling this.
+      async function attemptCopyFindings() {
+        const ta = document.getElementById('findings-textarea');
+        const status = document.getElementById('findings-status');
+        try {
+          await navigator.clipboard.writeText(ta.value);
+          status.textContent = 'Copied to clipboard — already selected below too.';
+          return;
+        } catch (e) {}
+        try {
+          if (document.execCommand('copy')) {
+            status.textContent = 'Copied to clipboard — already selected below too.';
+            return;
+          }
+        } catch (e) {}
+        status.textContent =
+          "Couldn't copy automatically — the text below is already selected, so Ctrl/Cmd+C copies it.";
+      }
+
+      // Opens the findings overlay with the text already selected, then
+      // makes one attempt to put it on the clipboard automatically.
+      function openFindingsOverlay() {
+        const ta = document.getElementById('findings-textarea');
+        ta.value = compileFindingsText();
+        document.getElementById('findings-overlay').style.display = 'flex';
+        ta.focus();
+        ta.select();
+        attemptCopyFindings();
+      }
+
       // Attaches a cache_control breakpoint to the last content block of the
       // last message, without mutating the caller's history array — the
       // marker only exists in the outgoing request, never accumulates
@@ -4141,6 +4250,30 @@
         .addEventListener('click', async () => {
           await idbDelete(PASSCODE_KEY);
           setAssistantChatVisible(false);
+        });
+      document
+        .getElementById('assistant-copy-findings-btn')
+        .addEventListener('click', () => {
+          openFindingsOverlay();
+        });
+      document
+        .getElementById('findings-close-btn')
+        .addEventListener('click', () => {
+          document.getElementById('findings-overlay').style.display = 'none';
+        });
+      document
+        .getElementById('findings-overlay')
+        .addEventListener('click', (e) => {
+          if (e.target.id === 'findings-overlay')
+            document.getElementById('findings-overlay').style.display = 'none';
+        });
+      document
+        .getElementById('findings-copy-btn')
+        .addEventListener('click', () => {
+          const ta = document.getElementById('findings-textarea');
+          ta.focus();
+          ta.select();
+          attemptCopyFindings();
         });
       document
         .getElementById('assistant-clear-chat-btn')

@@ -26,6 +26,18 @@ you control. That's this Worker.
   stronger guarantees, replace the `USAGE` KV reads/writes in
   `src/index.js` with a Durable Object, which can serialize them.
 
+The upstream call to Anthropic is always made with `stream: true` and
+relayed to the browser as it arrives — `hosted/index.html` renders the
+assistant's reply live instead of waiting on one big buffered response.
+The pre-call spending hold is still reserved worst-case *before* the
+upstream call, same as always; reconciling it down to the real cost now
+happens by reading a second, independent copy of the same response stream
+(`ReadableStream.tee()`) in the background via `ctx.waitUntil` — this
+never delays or blocks the copy actually being sent to the browser. A
+rejected request (bad passcode, bad params, cap already hit) never starts
+streaming either way; Anthropic still returns those as one small buffered
+JSON error, handled exactly as before.
+
 ## Setup — dashboard only, no command line needed
 
 Everything below is done by clicking through Cloudflare's website at

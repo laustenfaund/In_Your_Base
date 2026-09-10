@@ -72,7 +72,7 @@ const TTL_MONTH = 60 * 60 * 24 * 40;
 const TTL_MINUTE = 120;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const origin = request.headers.get('Origin') || '';
     const cors = corsHeaders(env, origin);
 
@@ -153,6 +153,11 @@ export default {
       tools: body.tools,
       output_config: body.output_config,
       messages: body.messages,
+      // Always requested server-side, same as max_tokens above - not
+      // trusted from the client body, so an older cached client that
+      // doesn't ask for it still gets (and must handle) a streamed
+      // response.
+      stream: true,
     };
 
     const now = new Date();
@@ -215,25 +220,36 @@ export default {
       return jsonError(502, 'Could not reach Anthropic: ' + e.message, cors);
     }
 
-    const text = await upstream.text();
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // leave parsed null
-    }
-
-    if (upstream.ok && parsed && parsed.usage) {
-      const actualCents = actualCostCents(model, parsed.usage);
-      await reconcileReservation(env, userDayKey, globalMonthKey, estimateCents, actualCents);
-    } else {
-      // Upstream call failed outright - nothing was billed, release the hold.
+    // A rejected request (bad key, bad params) never starts streaming -
+    // Anthropic still returns those as one small buffered JSON error body
+    // even though outgoing asked for stream:true, so that path is
+    // unchanged: read it whole, release the reservation, relay it as-is.
+    if (!upstream.ok) {
+      const text = await upstream.text();
       await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
+      return new Response(text, {
+        status: upstream.status,
+        headers: { ...cors, 'content-type': 'application/json' },
+      });
     }
 
-    return new Response(text, {
+    // Success: upstream.body is the live SSE stream. tee() splits it into
+    // two independent readers over the same underlying bytes - one
+    // relayed to the client immediately so it can render live exactly as
+    // it would talking to Anthropic directly, the other read to
+    // completion in the background purely to pull the real usage out of
+    // the stream's own message_start/message_delta events once it ends,
+    // for cost reconciliation. ctx.waitUntil keeps that background read
+    // alive after the response has already been returned, without making
+    // the client wait for it.
+    const [clientStream, usageStream] = upstream.body.tee();
+    ctx.waitUntil(
+      reconcileFromStream(usageStream, env, model, userDayKey, globalMonthKey, estimateCents)
+    );
+
+    return new Response(clientStream, {
       status: upstream.status,
-      headers: { ...cors, 'content-type': 'application/json' },
+      headers: { ...cors, 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
     });
   },
 };
@@ -275,6 +291,57 @@ async function readInt(kv, key) {
 
 async function releaseReservation(env, userDayKey, globalMonthKey, estimateCents) {
   await reconcileReservation(env, userDayKey, globalMonthKey, estimateCents, 0);
+}
+
+// Reads the usage-tracking half of the tee()'d upstream stream to
+// completion, parsing just enough of the SSE events (message_start and
+// message_delta - the only two that ever carry a usage field) to total up
+// the real cost, then reconciles the pre-call reservation against it.
+// Runs via ctx.waitUntil in the background: it never blocks or delays the
+// half of the stream already being relayed to the client.
+async function reconcileFromStream(stream, env, model, userDayKey, globalMonthKey, estimateCents) {
+  let usage = {};
+  try {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (!dataLine) continue;
+        let evt;
+        try {
+          evt = JSON.parse(dataLine.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (evt.type === 'message_start' && evt.message && evt.message.usage) {
+          usage = { ...usage, ...evt.message.usage };
+        } else if (evt.type === 'message_delta' && evt.usage) {
+          usage = { ...usage, ...evt.usage };
+        }
+      }
+    }
+  } catch (e) {
+    // Stream read itself failed (client disconnected mid-response, etc.)
+    // - fall through and reconcile with whatever usage was captured
+    // before that happened, same as a normal completed read would.
+  }
+  if (Object.keys(usage).length) {
+    const actualCents = actualCostCents(model, usage);
+    await reconcileReservation(env, userDayKey, globalMonthKey, estimateCents, actualCents);
+  } else {
+    // Never got any usage at all - the stream errored before
+    // message_start ever arrived. Release the hold rather than leaving it
+    // stuck at the worst-case estimate forever.
+    await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
+  }
 }
 
 // Replaces a held reservation with the real cost. Not perfectly atomic

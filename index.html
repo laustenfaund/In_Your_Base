@@ -3561,7 +3561,7 @@
           <p>Everything else in In Your Base stays local — this is the one feature that leaves the browser. Once you provide a key, each message you send is sent, along with the brief and whatever the assistant chooses to read from your archive, directly from this browser to <code>api.anthropic.com</code>. Nothing passes through any server of ours — the request goes straight from your device to Anthropic's, the same as if you'd built this against their API yourself. The key is stored in this browser's local database, next to the rest of your archive; the <span class="ui">change key</span> button clears it.</p>
         </div>
         <p>The assistant works by calling tools that mirror the app's own controls — filtering by platform, date, and tag; keyword-scoring across a scoped set; reading one record's full content; and recording a short quote-plus-note finding — so it follows the brief's own phases (scope, catalog, flag, read, record) instead of reading everything at once. Once a record's full content has had one extra round to be acted on, it's dropped from what gets resent to Anthropic on later rounds of the same session, replaced by a short placeholder — the recorded findings are what's kept instead, so token spend doesn't keep climbing every round a long search runs. A <span class="ui">model</span> dropdown trades capability for cost, and an <span class="ui">effort</span> dropdown does the same for how much the model reasons before answering — both are yours to dial down, since it's your key being billed.</p>
-        <p>While a message is in flight, <span class="ui">send</span> turns into <span class="ui">stop</span> — click it to cancel the request outright, rather than waiting it out. <span class="ui">clear chat</span> wipes the conversation, including everything the assistant has read or remembered so far this session, so your next message starts with no leftover context.</p>
+        <p>Replies stream in live, word by word, rather than appearing all at once once the assistant is done — a tool call (like a search or a record read) still happens as one step in between, shown as a status line rather than streamed itself. While a message is in flight, <span class="ui">send</span> turns into <span class="ui">stop</span> — click it to cancel the request outright, rather than waiting it out. <span class="ui">clear chat</span> wipes the conversation, including everything the assistant has read or remembered so far this session, so your next message starts with no leftover context.</p>
         <p><span class="ui">copy findings</span> compiles the session so far — every reply the assistant has given, plus a numbered list of whatever it's recorded as a finding along the way — into plain text in a read-only box, already selected so Ctrl/Cmd+C copies it by hand. It also tries to copy that text to your clipboard automatically the moment the box opens; if that's blocked (as it typically is when this page is opened as a local file rather than served over a real origin), the manual copy is the fallback, not an afterthought.</p>
         <div class="warn">
           <p class="note-label">Usage is billed to your key</p>
@@ -3935,6 +3935,27 @@
         div.scrollIntoView({ block: 'end' });
       }
 
+      // Same message bubble renderAssistantTurn('assistant', ...) builds,
+      // but returned as a handle to grow while the response streams in —
+      // via textContent +=, never innerHTML, so streamed model output
+      // can't become markup and needs no escaping. Used once per text
+      // content block; a response with no text block in it never calls
+      // this at all.
+      function beginLiveAssistantTurn() {
+        const wrap = document.getElementById('assistant-messages');
+        const div = document.createElement('div');
+        div.className = 'message';
+        div.innerHTML = `<div class="message-role assistant">AI</div><div class="message-text"></div>`;
+        wrap.appendChild(div);
+        const textEl = div.querySelector('.message-text');
+        return {
+          append(t) {
+            textEl.textContent += t;
+            div.scrollIntoView({ block: 'end' });
+          },
+        };
+      }
+
       // Plain-text session summary for the "copy findings" button: every
       // assistant text turn, read straight back out of assistantHistory
       // (no separate tracking array to keep in sync), followed by a
@@ -4069,18 +4090,132 @@
         return history;
       }
 
+      // Parses the Anthropic Messages API's SSE stream and reconstructs the
+      // same {content, stop_reason, usage} shape res.json() used to return
+      // for a non-streaming call, so the tool-execution and history logic
+      // in runAssistantLoop didn't need to change at all — it was already
+      // built around content blocks, not raw response bytes. Text renders
+      // live into the chat as it arrives; a tool call's input JSON arrives
+      // fragmented across many deltas and is only parsed once once its
+      // block closes, exactly the way the SDK's own stream helper does it
+      // internally (there's no SDK here — this is the same thing by hand).
+      // onChunk fires on every raw chunk actually read off the wire
+      // (including a bare 'ping' event, which carries no content of its
+      // own but is still real traffic) — callClaude uses it to reset the
+      // inactivity timeout, so a slow-but-live response is never confused
+      // with a stalled one.
+      async function readAssistantStream(reader, onChunk) {
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const content = [];
+        const jsonAccum = {};
+        let stopReason = null;
+        let usage = {};
+        let liveText = null;
+
+        function handleEvent(evt) {
+          switch (evt.type) {
+            case 'message_start':
+              usage = { ...usage, ...(evt.message && evt.message.usage) };
+              break;
+            case 'content_block_start': {
+              const block = evt.content_block;
+              content[evt.index] =
+                block.type === 'tool_use'
+                  ? { type: 'tool_use', id: block.id, name: block.name, input: {} }
+                  : { type: 'text', text: '' };
+              if (block.type === 'tool_use') jsonAccum[evt.index] = '';
+              // Real content just started arriving, whatever kind — the
+              // static "thinking…" placeholder has done its job.
+              hideThinking();
+              if (block.type === 'text') liveText = beginLiveAssistantTurn();
+              break;
+            }
+            case 'content_block_delta': {
+              const d = evt.delta;
+              if (d.type === 'text_delta') {
+                content[evt.index].text += d.text;
+                if (liveText) liveText.append(d.text);
+              } else if (d.type === 'input_json_delta') {
+                jsonAccum[evt.index] = (jsonAccum[evt.index] || '') + d.partial_json;
+              }
+              break;
+            }
+            case 'content_block_stop': {
+              const block = content[evt.index];
+              if (block && block.type === 'tool_use') {
+                try {
+                  block.input = JSON.parse(jsonAccum[evt.index] || '{}');
+                } catch (e) {
+                  block.input = {};
+                }
+              }
+              if (block && block.type === 'text') liveText = null;
+              break;
+            }
+            case 'message_delta':
+              if (evt.delta && evt.delta.stop_reason) stopReason = evt.delta.stop_reason;
+              if (evt.usage) usage = { ...usage, ...evt.usage };
+              break;
+            case 'message_stop':
+              break;
+            case 'error':
+              throw new Error((evt.error && evt.error.message) || 'stream error');
+            // 'ping' and anything unrecognized: no-op — still real traffic
+            // for onChunk's purposes, just nothing to apply here.
+          }
+        }
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          onChunk();
+          buffer += decoder.decode(value, { stream: true });
+          // SSE frames are separated by a blank line; a raw chunk boundary
+          // has no relationship to a frame boundary, so a frame can span
+          // more than one chunk — hence buffering rather than parsing each
+          // chunk in isolation.
+          let idx;
+          while ((idx = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+            if (!dataLine) continue;
+            const json = dataLine.slice(5).trim();
+            if (!json) continue;
+            let evt;
+            try {
+              evt = JSON.parse(json);
+            } catch (e) {
+              continue;
+            }
+            handleEvent(evt);
+          }
+        }
+
+        return { content: content.filter(Boolean), stop_reason: stopReason, usage };
+      }
+
       async function callClaude(messages) {
         const apiKey = await idbGet(API_KEY_KEY);
         const model = document.getElementById('assistant-model-select').value;
         const effort = document.getElementById('assistant-effort-select').value;
         const brief = (await idbGet(BRIEF_KEY)) || DEFAULT_BRIEF;
-        // A plain fetch() has no timeout of its own — without one, a dropped
-        // connection or an unresponsive proxy hangs forever with zero
-        // feedback, which looks identical to the app being broken. This
-        // gives a slow-but-real request up to 90s before giving up loudly.
         const controller = new AbortController();
         assistantAbortController = controller;
-        const timeoutId = setTimeout(() => controller.abort(), 90000);
+        // Inactivity timeout, not a flat timer from request start: reset
+        // on every chunk actually received (readAssistantStream calls
+        // this while the body streams in), so a slow-but-actively-
+        // streaming response — real thinking, a long tool round — can run
+        // well past 90s. Only genuine silence for 90s straight aborts it.
+        // This is what makes raising max_tokens later actually safe: a
+        // big response no longer risks a silent mid-generation abort with
+        // zero signal anything was still happening.
+        let timeoutId = setTimeout(() => controller.abort(), 90000);
+        const resetTimeout = () => {
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => controller.abort(), 90000);
+        };
         let res;
         try {
           res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -4100,10 +4235,13 @@
               tools: ASSISTANT_TOOLS,
               output_config: { effort },
               messages: withCacheBreakpoint(messages),
+              stream: true,
             }),
             signal: controller.signal,
           });
         } catch (e) {
+          clearTimeout(timeoutId);
+          assistantAbortController = null;
           if (e.name === 'AbortError') {
             if (assistantUserStopped) throw new Error('Stopped.');
             throw new Error(
@@ -4111,11 +4249,13 @@
             );
           }
           throw new Error('Could not reach api.anthropic.com: ' + e.message);
-        } finally {
+        }
+        // A rejected request (bad key, bad params) never starts streaming
+        // — it comes back as an ordinary buffered JSON error body, same
+        // as before, so this path is unchanged.
+        if (!res.ok) {
           clearTimeout(timeoutId);
           assistantAbortController = null;
-        }
-        if (!res.ok) {
           const body = await res.text();
           let msg = body;
           try {
@@ -4123,7 +4263,20 @@
           } catch (e) {}
           throw new Error(`${res.status}: ${msg}`);
         }
-        return res.json();
+        try {
+          return await readAssistantStream(res.body.getReader(), resetTimeout);
+        } catch (e) {
+          if (e.name === 'AbortError') {
+            if (assistantUserStopped) throw new Error('Stopped.');
+            throw new Error(
+              'Connection went quiet for 90s mid-response — this is usually a dropped connection, not the archive itself. Try again.'
+            );
+          }
+          throw e;
+        } finally {
+          clearTimeout(timeoutId);
+          assistantAbortController = null;
+        }
       }
 
       async function runAssistantLoop(userText) {
@@ -4145,11 +4298,8 @@
               hideThinking();
             }
             assistantHistory.push({ role: 'assistant', content: resp.content });
-            const textBlocks = resp.content
-              .filter((b) => b.type === 'text')
-              .map((b) => b.text)
-              .join('\n\n');
-            if (textBlocks) renderAssistantTurn('assistant', textBlocks);
+            // Text isn't rendered here — readAssistantStream already drew
+            // it into the chat live, block by block, as it streamed in.
             // Checked by content, not stop_reason: a response can hold a
             // completed tool_use block while stopping for an unrelated
             // reason (most likely max_tokens cutting it off right after).

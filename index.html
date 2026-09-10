@@ -360,6 +360,41 @@
         width: 0%;
       }
 
+      /* Import warning — a file that couldn't be read at all (not valid
+         JSON, or unreadable), surfaced instead of only going to the
+         console. Sits above both the empty state and the main area so it's
+         visible whichever one processFiles leaves on screen. */
+      .import-warning {
+        display: none;
+        align-items: flex-start;
+        gap: 10px;
+        margin: 0 0 1rem;
+        padding: 12px 16px;
+        border: 1px solid var(--warn);
+        border-left: 3px solid var(--warn);
+        border-radius: 0 8px 8px 0;
+        background: var(--warn-soft);
+        color: var(--text);
+        font-size: 13.5px;
+        line-height: 1.5;
+      }
+      .import-warning.show {
+        display: flex;
+      }
+      .import-warning b {
+        color: var(--warn);
+      }
+      .import-warning-close {
+        margin-left: auto;
+        border: none;
+        background: none;
+        color: var(--text2);
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        padding: 0 0 0 8px;
+      }
+
       /* Stats */
       .stats-grid {
         display: flex;
@@ -1186,6 +1221,10 @@
     </style></head>
   <body>
     <div id="app">
+      <div id="import-warning" class="import-warning" role="alert">
+        <div id="import-warning-text"></div>
+        <button class="import-warning-close" id="import-warning-close" aria-label="Dismiss">&times;</button>
+      </div>
       <!-- Empty state -->
       <div id="empty-state-area" class="empty-split">
         <div class="empty-left">
@@ -1944,6 +1983,13 @@
       function parseFile(data, fileName) {
         const conversations = [];
         let raw = unwrapExportArray(data);
+        // Seeded from everything already loaded, then grown as this file's
+        // own items are accepted — so two items sharing an id inside the
+        // *same* file are caught too, not just a repeat of something from
+        // an earlier file. allConversations itself isn't updated until the
+        // whole file is done parsing, so checking only against it (as
+        // before) let an in-file duplicate slip through both copies.
+        const seenIds = new Set(allConversations.map((c) => c.id));
         for (let conv of raw) {
           if (conv === null || conv === undefined) continue; // nothing there at all
           // A bare scalar or array — not itself a set of fields — still
@@ -1981,7 +2027,7 @@
           }
           const id =
             conv.id || conv.conversation_id || Math.random().toString(36);
-          if (allConversations.some((c) => c.id === id)) continue;
+          if (seenIds.has(id)) continue;
           const messages = extractMessages(conv);
           const created = conv.create_time || 0,
             updated = conv.update_time || created;
@@ -2003,6 +2049,7 @@
           // was never reached is what tells the two apart.
           const hasRealTitle = conv.title !== 'Untitled record';
           if (!messages.length && !entries.length && !hasRealTitle) continue; // nothing here at all
+          seenIds.add(id);
           const fieldText = flattenFieldsForSearch(entries);
           const kind = messages.length ? 'chat' : 'record';
           const wordCount = messages.length
@@ -2040,10 +2087,30 @@
         return conversations;
       }
 
+      // A file that fails here was never added to loadedFileNames, so
+      // re-dropping it (after fixing it, or just trying again) is retried
+      // normally rather than being treated as an already-loaded duplicate.
+      function showImportWarning(failed) {
+        const box = document.getElementById('import-warning');
+        if (!failed.length) {
+          box.classList.remove('show');
+          return;
+        }
+        const names = failed.map((f) => `<b>${esc(f)}</b>`).join(', ');
+        const word = failed.length === 1 ? 'file' : 'files';
+        document.getElementById('import-warning-text').innerHTML =
+          `Couldn't read ${failed.length} ${word}: ${names}. ` +
+          `It isn't valid JSON, or couldn't be opened — nothing from ${
+            failed.length === 1 ? 'it' : 'them'
+          } was added. Everything else you dropped in loaded fine.`;
+        box.classList.add('show');
+      }
+
       async function processFiles(files) {
         document.getElementById('progress').style.display = 'block';
         const bar = document.getElementById('progress-bar');
         let added = 0;
+        const failed = [];
         for (let i = 0; i < files.length; i++) {
           bar.style.width = Math.round(((i + 0.5) / files.length) * 100) + '%';
           const file = files[i];
@@ -2056,6 +2123,7 @@
             added += parsed.length;
           } catch (e) {
             console.error(file.name, e);
+            failed.push(file.name);
           }
           await new Promise((r) => setTimeout(r, 10));
         }
@@ -2070,6 +2138,7 @@
         updateStats();
         renderPlatformChips();
         applyFilters();
+        showImportWarning(failed);
       }
 
       function showMain() {
@@ -2799,6 +2868,11 @@
       }
 
       // Event listeners
+      document
+        .getElementById('import-warning-close')
+        .addEventListener('click', () =>
+          document.getElementById('import-warning').classList.remove('show')
+        );
       const dze = document.getElementById('drop-zone-empty');
       dze.addEventListener('click', () =>
         document.getElementById('file-input').click()
@@ -2811,9 +2885,12 @@
       dze.addEventListener('drop', (e) => {
         e.preventDefault();
         dze.classList.remove('dragover');
-        processFiles(
-          [...e.dataTransfer.files].filter((f) => f.name.endsWith('.json'))
-        );
+        // Every dropped file goes to processFiles, not just ones already
+        // named .json — filtering by extension here would silently drop
+        // anything misnamed with no feedback at all; JSON.parse is the
+        // real test, and a file that fails it now shows up in the import
+        // warning instead of just vanishing.
+        processFiles([...e.dataTransfer.files]);
       });
 
       document

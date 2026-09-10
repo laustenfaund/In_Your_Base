@@ -4263,6 +4263,29 @@
           } catch (e) {}
           throw new Error(`${res.status}: ${msg}`);
         }
+        // This talks to Anthropic directly, which always honors stream:
+        // true as sent above, so this check is normally a no-op here —
+        // kept only so this function stays identical to hosted/index.html's
+        // (same check there is load-bearing: that variant goes through a
+        // separately-deployed proxy that might still be on an older,
+        // non-streaming version). A non-streaming JSON body, if one ever
+        // did arrive, is read the old way instead of being fed to the SSE
+        // parser, which would otherwise just find no frames in it and
+        // silently return nothing. Nothing was live-rendered in that
+        // case — readAssistantStream never ran — so any text block is
+        // rendered here in one shot instead, the same way this function
+        // always rendered a response before streaming existed at all.
+        if (!(res.headers.get('content-type') || '').includes('text/event-stream')) {
+          clearTimeout(timeoutId);
+          assistantAbortController = null;
+          const parsed = await res.json();
+          const textBlocks = (parsed.content || [])
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text)
+            .join('\n\n');
+          if (textBlocks) renderAssistantTurn('assistant', textBlocks);
+          return parsed;
+        }
         try {
           return await readAssistantStream(res.body.getReader(), resetTimeout);
         } catch (e) {

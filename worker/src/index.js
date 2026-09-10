@@ -146,6 +146,13 @@ export default {
     // not trusted from the client as-is, since it's the single biggest
     // lever on cost per call.
     const maxTokens = clamp(parseInt(body.max_tokens, 10) || 4096, 1, MAX_OUTPUT_TOKENS_CEILING);
+    // Whether to stream is honored from the client rather than hardcoded,
+    // unlike max_tokens above - it has no cost or security implications
+    // either way, it's purely a transport choice, and honoring it is what
+    // keeps an old client (never sends stream) and a new client (always
+    // sends stream: true) both working against this same Worker without
+    // needing a synchronized deploy. See the branch below on upstream.ok.
+    const wantsStream = !!body.stream;
     const outgoing = {
       model,
       max_tokens: maxTokens,
@@ -153,11 +160,7 @@ export default {
       tools: body.tools,
       output_config: body.output_config,
       messages: body.messages,
-      // Always requested server-side, same as max_tokens above - not
-      // trusted from the client body, so an older cached client that
-      // doesn't ask for it still gets (and must handle) a streamed
-      // response.
-      stream: true,
+      stream: wantsStream,
     };
 
     const now = new Date();
@@ -222,8 +225,9 @@ export default {
 
     // A rejected request (bad key, bad params) never starts streaming -
     // Anthropic still returns those as one small buffered JSON error body
-    // even though outgoing asked for stream:true, so that path is
-    // unchanged: read it whole, release the reservation, relay it as-is.
+    // regardless of what outgoing.stream asked for, so this path is the
+    // same either way: read it whole, release the reservation, relay it
+    // as-is.
     if (!upstream.ok) {
       const text = await upstream.text();
       await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
@@ -233,15 +237,39 @@ export default {
       });
     }
 
-    // Success: upstream.body is the live SSE stream. tee() splits it into
-    // two independent readers over the same underlying bytes - one
-    // relayed to the client immediately so it can render live exactly as
-    // it would talking to Anthropic directly, the other read to
-    // completion in the background purely to pull the real usage out of
-    // the stream's own message_start/message_delta events once it ends,
-    // for cost reconciliation. ctx.waitUntil keeps that background read
-    // alive after the response has already been returned, without making
-    // the client wait for it.
+    if (!wantsStream) {
+      // Old-shaped request (no stream: true sent) - upstream was asked
+      // for, and returned, one buffered JSON response, exactly as this
+      // Worker always used to behave. Kept working so an old client
+      // doesn't need to be redeployed in lockstep with this Worker.
+      const text = await upstream.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // leave parsed null
+      }
+      if (parsed && parsed.usage) {
+        const actualCents = actualCostCents(model, parsed.usage);
+        await reconcileReservation(env, userDayKey, globalMonthKey, estimateCents, actualCents);
+      } else {
+        await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
+      }
+      return new Response(text, {
+        status: upstream.status,
+        headers: { ...cors, 'content-type': 'application/json' },
+      });
+    }
+
+    // Streaming request: upstream.body is the live SSE stream. tee()
+    // splits it into two independent readers over the same underlying
+    // bytes - one relayed to the client immediately so it can render live
+    // exactly as it would talking to Anthropic directly, the other read
+    // to completion in the background purely to pull the real usage out
+    // of the stream's own message_start/message_delta events once it
+    // ends, for cost reconciliation. ctx.waitUntil keeps that background
+    // read alive after the response has already been returned, without
+    // making the client wait for it.
     const [clientStream, usageStream] = upstream.body.tee();
     ctx.waitUntil(
       reconcileFromStream(usageStream, env, model, userDayKey, globalMonthKey, estimateCents)

@@ -4277,6 +4277,31 @@
           } catch (e) {}
           throw new Error(`${res.status}: ${msg}`);
         }
+        // stream:true was asked for above, but what actually comes back is
+        // what settles this, not what was requested — this proxy is
+        // deployed separately from this page (see worker/README.md), so
+        // an old Worker still returns one buffered JSON body regardless
+        // of what this page asked for. Read that the old way instead of
+        // handing it to the SSE parser, which would otherwise just find
+        // no frames in it and silently return nothing. This, plus the
+        // Worker itself honoring body.stream instead of hardcoding it, is
+        // what keeps this page and the Worker working across a mismatched
+        // deploy instead of requiring both updated in lockstep. Nothing
+        // was live-rendered in that case — readAssistantStream never ran
+        // — so any text block is rendered here in one shot instead, the
+        // same way this function always rendered a response before
+        // streaming existed at all.
+        if (!(res.headers.get('content-type') || '').includes('text/event-stream')) {
+          clearTimeout(timeoutId);
+          assistantAbortController = null;
+          const parsed = await res.json();
+          const textBlocks = (parsed.content || [])
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text)
+            .join('\n\n');
+          if (textBlocks) renderAssistantTurn('assistant', textBlocks);
+          return parsed;
+        }
         try {
           return await readAssistantStream(res.body.getReader(), resetTimeout);
         } catch (e) {

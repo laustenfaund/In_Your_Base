@@ -1431,12 +1431,19 @@
           gap: 12px;
           font-family: var(--sans);
         ">
-        <div style="display: flex; align-items: center; justify-content: space-between">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
           <div style="font-weight: 600">
             AI Assistant
             <span style="font-family: var(--mono); font-size: 11px; color: var(--text3); font-weight: 400">— hosted, passcode-gated</span>
           </div>
-          <button id="assistant-close-btn" class="add-files-btn">close</button>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div id="assistant-header-controls" style="display: none; gap: 8px; flex-wrap: wrap;">
+              <button id="assistant-clear-chat-btn" class="small-btn" style="white-space: nowrap;">clear chat</button>
+              <button id="assistant-copy-findings-btn" class="small-btn" style="white-space: nowrap;">copy findings</button>
+              <button id="assistant-change-key-btn" class="small-btn" style="white-space: nowrap;">change passcode</button>
+            </div>
+            <button id="assistant-close-btn" class="add-files-btn" style="white-space: nowrap;">close</button>
+          </div>
         </div>
 
         <div id="assistant-setup" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 12px; overflow-y: auto;">
@@ -1451,7 +1458,7 @@
         </div>
 
         <div id="assistant-chat" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 10px;">
-          <div style="display: flex; gap: 8px; align-items: center">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <span class="filter-label">model:</span>
             <select id="assistant-model-select" class="assistant-field" style="padding: 5px 8px; font-size: 12px; font-family: var(--mono); cursor: pointer;">
               <option value="claude-sonnet-5" selected>Claude Sonnet 5 — balanced (default)</option>
@@ -1464,14 +1471,51 @@
               <option value="medium">medium</option>
               <option value="low">low</option>
             </select>
-            <button id="assistant-clear-chat-btn" class="small-btn" style="margin-left: auto">clear chat</button>
-            <button id="assistant-change-key-btn" class="small-btn">change passcode</button>
           </div>
           <div id="assistant-messages" class="messages-scroll" style="flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem;"></div>
           <div style="display: flex; gap: 8px; align-items: flex-end">
             <textarea id="assistant-input" class="assistant-field assistant-textarea" style="flex: 1" rows="1" placeholder="Tell it what you're looking for..."></textarea>
             <button id="assistant-send-btn" class="add-files-btn">send</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="findings-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 9999; align-items: center; justify-content: center;">
+      <div style="
+          background: var(--bg2);
+          color: var(--text);
+          border: 1px solid var(--border);
+          padding: 20px;
+          border-radius: var(--radius2);
+          width: 600px;
+          max-width: 90vw;
+          max-height: 80vh;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          font-family: var(--sans);
+        ">
+        <div style="font-weight: 600">Compiled Findings</div>
+        <p style="font-size: 12px; color: var(--text2); margin: 0; line-height: 1.5">
+          The assistant's summary and recorded findings from this chat, compiled into plain text — paste it into a note, doc, or email. Copied to your clipboard automatically where the browser allows it; select and copy manually otherwise.
+        </p>
+        <textarea id="findings-text" readonly style="
+            flex: 1;
+            min-height: 260px;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border2);
+            border-radius: var(--radius);
+            padding: 8px;
+            font-family: var(--mono);
+            font-size: 12px;
+            resize: vertical;
+          "></textarea>
+        <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
+          <span id="findings-copy-status" style="font-size: 12px; color: var(--text3)"></span>
+          <button id="findings-copy-btn" class="small-btn" style="white-space: nowrap">copy to clipboard</button>
+          <button id="findings-close-btn" class="add-files-btn" style="white-space: nowrap">close</button>
         </div>
       </div>
     </div>
@@ -2315,7 +2359,7 @@
             (t) =>
               `<button class="user-tag-chip${
                 activeTagFilter === t ? ' active' : ''
-              }" onclick="filterByTag('${t}')">${t}</button>`
+              }" onclick="filterByTag(${jsAttr(t)})">${esc(t)}</button>`
           )
           .join('');
       }
@@ -2606,7 +2650,7 @@
         ${tags
           .map(
             (t) =>
-              `<span class="conv-user-tag">${t}<button onclick="removeTag(${convIdJs},${jsAttr(
+              `<span class="conv-user-tag">${esc(t)}<button onclick="removeTag(${convIdJs},${jsAttr(
                 t
               )});rerenderTags(${gIdx},${convIdJs})" aria-label="remove tag">×</button></span>`
           )
@@ -2679,7 +2723,7 @@
         row.innerHTML = `${tags
           .map(
             (t) =>
-              `<span class="conv-user-tag">${t}<button onclick="removeTag(${convIdJs},${jsAttr(
+              `<span class="conv-user-tag">${esc(t)}<button onclick="removeTag(${convIdJs},${jsAttr(
                 t
               )});rerenderTags(${gIdx},${convIdJs})" aria-label="remove">×</button></span>`
           )
@@ -2761,7 +2805,7 @@
         document.getElementById('search-tags').innerHTML = searchTerms
           .map(
             (t) =>
-              `<span class="search-tag">${t}<button onclick="removeSearchTerm('${t}')" aria-label="remove">×</button></span>`
+              `<span class="search-tag">${esc(t)}<button onclick="removeSearchTerm(${jsAttr(t)})" aria-label="remove">×</button></span>`
           )
           .join('');
       }
@@ -3680,6 +3724,80 @@
         return { recorded: true, totalFindings: assistantFindings.length };
       }
 
+      // Builds the plain-text block behind the "copy findings" button: every
+      // assistant text turn so far (the running narrative — summary, plot
+      // line, whatever it's actually written) followed by the discrete
+      // record_finding citations. Pure text, no HTML — safe to paste
+      // anywhere without carrying formatting or markup along with it.
+      function compileFindingsText() {
+        const summary = assistantHistory
+          .filter((m) => m.role === 'assistant' && Array.isArray(m.content))
+          .map((m) =>
+            m.content
+              .filter((b) => b.type === 'text')
+              .map((b) => b.text)
+              .join('\n\n')
+          )
+          .filter((t) => t.trim())
+          .join('\n\n---\n\n');
+
+        const lines = [
+          'IN YOUR BASE — ASSISTANT FINDINGS',
+          new Date().toLocaleString(),
+          '',
+          'SUMMARY',
+          summary || '(no assistant response yet)',
+          '',
+          `FINDINGS (${assistantFindings.length})`,
+        ];
+        if (!assistantFindings.length) {
+          lines.push('(none recorded yet)');
+        } else {
+          assistantFindings.forEach((f, i) => {
+            lines.push('');
+            lines.push(`${i + 1}. ${f.title || f.id}`);
+            if (f.quote) lines.push(`   "${f.quote}"`);
+            lines.push(`   ${f.note}`);
+          });
+        }
+        return lines.join('\n');
+      }
+
+      // Tries the async Clipboard API first (blocked on some browsers when
+      // the page is opened as a plain file:// document, which this app
+      // supports); falls back to the older execCommand('copy') path, which
+      // works from a selected textarea regardless of that permission. The
+      // textarea stays visible and pre-selected either way, so a manual
+      // Ctrl+C always works even if both attempts fail.
+      async function copyTextToClipboard(text, statusEl) {
+        try {
+          await navigator.clipboard.writeText(text);
+          statusEl.textContent = 'copied to clipboard';
+          return;
+        } catch (e) {
+          // fall through to the legacy path below
+        }
+        try {
+          const ok = document.execCommand('copy');
+          statusEl.textContent = ok
+            ? 'copied to clipboard'
+            : 'select the text above and copy manually';
+        } catch (e) {
+          statusEl.textContent = 'select the text above and copy manually';
+        }
+      }
+
+      function openFindingsOverlay() {
+        const text = compileFindingsText();
+        const textarea = document.getElementById('findings-text');
+        textarea.value = text;
+        document.getElementById('findings-overlay').style.display = 'flex';
+        document.getElementById('findings-copy-status').textContent = '';
+        textarea.focus();
+        textarea.select();
+        copyTextToClipboard(text, document.getElementById('findings-copy-status'));
+      }
+
       const ASSISTANT_TOOLS = [
         {
           name: 'filter_records',
@@ -3787,6 +3905,21 @@
         div.scrollIntoView({ block: 'end' });
       }
 
+      // Same message bubble as renderAssistantTurn, but returns the empty
+      // .message-text node to be filled in as text deltas stream in,
+      // rather than taking a complete string up front. textContent (not
+      // innerHTML) on every append, same as esc() achieves for the
+      // non-streaming path — no HTML parsing of model output either way.
+      function createStreamingAssistantTurn() {
+        const wrap = document.getElementById('assistant-messages');
+        const div = document.createElement('div');
+        div.className = 'message';
+        div.innerHTML = `<div class="message-role assistant">AI</div><div class="message-text"></div>`;
+        wrap.appendChild(div);
+        div.scrollIntoView({ block: 'end' });
+        return div.querySelector('.message-text');
+      }
+
       // Attaches a cache_control breakpoint to the last content block of the
       // last message, without mutating the caller's history array — the
       // marker only exists in the outgoing request, never accumulates
@@ -3852,63 +3985,180 @@
         return history;
       }
 
-      async function callClaude(messages) {
-        const passcode = await idbGet(PASSCODE_KEY);
-        const model = document.getElementById('assistant-model-select').value;
-        const effort = document.getElementById('assistant-effort-select').value;
-        const brief = (await idbGet(BRIEF_KEY)) || DEFAULT_BRIEF;
-        // A plain fetch() has no timeout of its own — without one, a dropped
-        // connection or an unresponsive proxy hangs forever with zero
-        // feedback, which looks identical to the app being broken. This
-        // gives a slow-but-real request up to 90s before giving up loudly.
+      // Applies one parsed SSE event from the Messages API stream onto the
+      // content-block array being reconstructed. Shared shape with the BYOK
+      // build's version — only the transport underneath differs (this one
+      // goes through the proxy).
+      function applyStreamEvent(evt, contentBlocks, onTextDelta) {
+        if (evt.type === 'content_block_start') {
+          contentBlocks[evt.index] =
+            evt.content_block.type === 'tool_use'
+              ? {
+                  type: 'tool_use',
+                  id: evt.content_block.id,
+                  name: evt.content_block.name,
+                  input: {},
+                  _partialJson: '',
+                }
+              : { ...evt.content_block };
+        } else if (evt.type === 'content_block_delta') {
+          const block = contentBlocks[evt.index];
+          if (!block) return;
+          if (evt.delta.type === 'text_delta') {
+            block.text = (block.text || '') + evt.delta.text;
+            if (onTextDelta) onTextDelta(evt.delta.text);
+          } else if (evt.delta.type === 'input_json_delta') {
+            block._partialJson = (block._partialJson || '') + evt.delta.partial_json;
+          } else if (evt.delta.type === 'thinking_delta') {
+            block.thinking = (block.thinking || '') + evt.delta.thinking;
+          }
+        } else if (evt.type === 'content_block_stop') {
+          const block = contentBlocks[evt.index];
+          if (block && block.type === 'tool_use' && block._partialJson !== undefined) {
+            try {
+              block.input = JSON.parse(block._partialJson || '{}');
+            } catch (e) {
+              block.input = {};
+            }
+            delete block._partialJson;
+          }
+        } else if (evt.type === 'error') {
+          throw new Error((evt.error && evt.error.message) || 'stream error');
+        }
+      }
+
+      // Posts one streaming request to the assistant proxy and reconstructs
+      // the same {content, stop_reason, usage} shape the old non-streaming
+      // res.json() returned, so nothing downstream (tool handling, history,
+      // findings) needs to know the transport changed. onTextDelta, if
+      // given, fires with each fragment of visible text as it arrives.
+      //
+      // Timeout is inactivity-based rather than a flat ceiling: the timer
+      // resets on every chunk received, not just once at the start. A
+      // slow-but-actively-generating response can run well past 90s total
+      // as long as something keeps arriving; only a connection that goes
+      // silent for 90s straight gets aborted.
+      async function streamClaude(url, headers, body, onTextDelta) {
         const controller = new AbortController();
         assistantAbortController = controller;
-        const timeoutId = setTimeout(() => controller.abort(), 90000);
+        let timeoutId;
+        const resetTimeout = () => {
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => controller.abort(), 90000);
+        };
+        resetTimeout();
+
         let res;
         try {
-          // This does not go to api.anthropic.com directly. It goes to the
-          // app owner's own proxy (worker/ in this repo), which holds the
-          // real Anthropic key, checks the passcode below, and enforces
-          // spending caps before forwarding the request on. The proxy also
-          // clamps and injects max_tokens server-side, so it's omitted here.
-          res = await fetch(ASSISTANT_PROXY_URL + '/v1/messages', {
+          res = await fetch(url, {
             method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-passcode': passcode,
-            },
-            body: JSON.stringify({
-              model,
-              system: [
-                { type: 'text', text: brief, cache_control: { type: 'ephemeral' } },
-              ],
-              tools: ASSISTANT_TOOLS,
-              output_config: { effort },
-              messages: withCacheBreakpoint(messages),
-            }),
+            headers,
+            body: JSON.stringify({ ...body, stream: true }),
             signal: controller.signal,
           });
         } catch (e) {
+          clearTimeout(timeoutId);
+          assistantAbortController = null;
           if (e.name === 'AbortError') {
             if (assistantUserStopped) throw new Error('Stopped.');
             throw new Error(
-              'Request timed out after 90s with no response — this is usually a dropped connection or an unreachable network, not the archive itself. Try again.'
+              'Request timed out — no data received for 90s, usually a dropped connection or an unreachable network, not the archive itself. Try again.'
             );
           }
           throw new Error('Could not reach the assistant proxy: ' + e.message);
+        }
+
+        if (!res.ok) {
+          clearTimeout(timeoutId);
+          assistantAbortController = null;
+          const text = await res.text();
+          let msg = text;
+          try {
+            msg = JSON.parse(text).error.message;
+          } catch (e) {}
+          throw new Error(`${res.status}: ${msg}`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const contentBlocks = [];
+        let stopReason = null;
+        let usage = {};
+
+        try {
+          while (true) {
+            let step;
+            try {
+              step = await reader.read();
+            } catch (e) {
+              if (assistantUserStopped) throw new Error('Stopped.');
+              throw new Error(
+                'Request timed out — no data received for 90s, usually a dropped connection or an unreachable network, not the archive itself. Try again.'
+              );
+            }
+            if (step.done) break;
+            resetTimeout();
+            buffer += decoder.decode(step.value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop();
+            for (const raw of events) {
+              const dataLine = raw.split('\n').find((l) => l.startsWith('data:'));
+              if (!dataLine) continue;
+              let evt;
+              try {
+                evt = JSON.parse(dataLine.slice(5).trim());
+              } catch (e) {
+                continue;
+              }
+              applyStreamEvent(evt, contentBlocks, onTextDelta);
+              if (evt.type === 'message_start' && evt.message && evt.message.usage) {
+                usage = { ...usage, ...evt.message.usage };
+              }
+              if (evt.type === 'message_delta') {
+                if (evt.delta && evt.delta.stop_reason) stopReason = evt.delta.stop_reason;
+                if (evt.usage) usage = { ...usage, ...evt.usage };
+              }
+            }
+          }
         } finally {
           clearTimeout(timeoutId);
           assistantAbortController = null;
         }
-        if (!res.ok) {
-          const body = await res.text();
-          let msg = body;
-          try {
-            msg = JSON.parse(body).error.message;
-          } catch (e) {}
-          throw new Error(`${res.status}: ${msg}`);
-        }
-        return res.json();
+
+        return {
+          content: contentBlocks.filter(Boolean).map(({ _partialJson, ...b }) => b),
+          stop_reason: stopReason,
+          usage,
+        };
+      }
+
+      async function callClaude(messages, onTextDelta) {
+        const passcode = await idbGet(PASSCODE_KEY);
+        const model = document.getElementById('assistant-model-select').value;
+        const effort = document.getElementById('assistant-effort-select').value;
+        const brief = (await idbGet(BRIEF_KEY)) || DEFAULT_BRIEF;
+        // This does not go to api.anthropic.com directly. It goes to the
+        // app owner's own proxy (worker/ in this repo), which holds the
+        // real Anthropic key, checks the passcode below, streams the
+        // response straight through, and enforces spending caps before
+        // forwarding the request on (reconciled after the fact against
+        // the real usage once the stream ends — see worker/src/index.js).
+        return streamClaude(
+          ASSISTANT_PROXY_URL + '/v1/messages',
+          {
+            'content-type': 'application/json',
+            'x-passcode': passcode,
+          },
+          {
+            model,
+            system: [{ type: 'text', text: brief, cache_control: { type: 'ephemeral' } }],
+            tools: ASSISTANT_TOOLS,
+            output_config: { effort },
+            messages: withCacheBreakpoint(messages),
+          },
+          onTextDelta
+        );
       }
 
       async function runAssistantLoop(userText) {
@@ -3923,25 +4173,40 @@
           for (let round = 0; round < 8; round++) {
             assistantHistory = compactHistory(assistantHistory);
             showThinking();
+            // Created lazily on the first text delta, not up front — a
+            // round that goes straight to tool calls with no visible text
+            // never gets an empty bubble left behind.
+            let liveTextEl = null;
+            const onTextDelta = (delta) => {
+              if (!liveTextEl) {
+                hideThinking();
+                liveTextEl = createStreamingAssistantTurn();
+              }
+              liveTextEl.textContent += delta;
+              liveTextEl.parentElement.scrollIntoView({ block: 'end' });
+            };
             let resp;
             try {
-              resp = await callClaude(assistantHistory);
+              resp = await callClaude(assistantHistory, onTextDelta);
             } finally {
               hideThinking();
             }
             assistantHistory.push({ role: 'assistant', content: resp.content });
-            const textBlocks = resp.content
-              .filter((b) => b.type === 'text')
-              .map((b) => b.text)
-              .join('\n\n');
-            if (textBlocks) renderAssistantTurn('assistant', textBlocks);
-            if (resp.stop_reason !== 'tool_use') {
+            // Check for actual tool_use blocks, not stop_reason — a response
+            // that got cut off for any other reason (most likely hitting
+            // max_tokens) while still holding a tool_use block would
+            // otherwise leave that tool_use permanently unanswered: history
+            // already has it (pushed above), stop_reason !== 'tool_use' would
+            // break the loop before a matching tool_result is ever built, and
+            // the next API call hard-fails with "tool_use ids were found
+            // without tool_result blocks immediately after."
+            const toolUseBlocks = resp.content.filter((b) => b.type === 'tool_use');
+            if (toolUseBlocks.length === 0) {
               stoppedReason = 'done';
               break;
             }
             const toolResults = [];
-            for (const block of resp.content) {
-              if (block.type !== 'tool_use') continue;
+            for (const block of toolUseBlocks) {
               assistantStatusLine(`→ ${block.name}(${JSON.stringify(block.input)})`);
               const result = executeAssistantTool(block.name, block.input);
               toolResults.push({
@@ -3981,6 +4246,9 @@
           document.getElementById('assistant-chat').style.display = key
             ? 'flex'
             : 'none';
+          document.getElementById('assistant-header-controls').style.display = key
+            ? 'flex'
+            : 'none';
         });
       document
         .getElementById('assistant-close-btn')
@@ -4002,12 +4270,36 @@
           document.getElementById('assistant-key-input').value = '';
           document.getElementById('assistant-setup').style.display = 'none';
           document.getElementById('assistant-chat').style.display = 'flex';
+          document.getElementById('assistant-header-controls').style.display = 'flex';
+        });
+      document
+        .getElementById('assistant-copy-findings-btn')
+        .addEventListener('click', openFindingsOverlay);
+      document
+        .getElementById('findings-copy-btn')
+        .addEventListener('click', () => {
+          const textarea = document.getElementById('findings-text');
+          textarea.focus();
+          textarea.select();
+          copyTextToClipboard(textarea.value, document.getElementById('findings-copy-status'));
+        });
+      document
+        .getElementById('findings-close-btn')
+        .addEventListener('click', () => {
+          document.getElementById('findings-overlay').style.display = 'none';
+        });
+      document
+        .getElementById('findings-overlay')
+        .addEventListener('click', (e) => {
+          if (e.target.id === 'findings-overlay')
+            document.getElementById('findings-overlay').style.display = 'none';
         });
       document
         .getElementById('assistant-change-key-btn')
         .addEventListener('click', async () => {
           await idbDelete(PASSCODE_KEY);
           document.getElementById('assistant-chat').style.display = 'none';
+          document.getElementById('assistant-header-controls').style.display = 'none';
           document.getElementById('assistant-setup').style.display = 'flex';
         });
       document

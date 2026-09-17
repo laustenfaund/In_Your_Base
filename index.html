@@ -3711,6 +3711,185 @@
         };
       }
 
+      // Unlike Archive Mole's fixed conversation shape, a record's own
+      // fields are whatever the export happened to call them — so before
+      // filter_records/search_records/get_stats can be pointed at a field
+      // by name, something has to look at the values actually loaded and
+      // work out what kind of thing each field is. Runs over every
+      // record-kind item's `fields` entries; a 'chat'-kind item has no
+      // fields of its own to contribute.
+      function numericValue(v) {
+        if (typeof v === 'number' && isFinite(v)) return v;
+        if (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v))) return Number(v);
+        return null;
+      }
+      function inferFieldType(values) {
+        let numeric = 0, dateish = 0, boolean = 0;
+        for (const v of values) {
+          if (typeof v === 'boolean') { boolean++; continue; }
+          if (numericValue(v) != null) { numeric++; continue; }
+          if (typeof v === 'string' && /\d{4}/.test(v) && !isNaN(Date.parse(v))) { dateish++; continue; }
+        }
+        const total = values.length;
+        if (boolean === total) return 'boolean';
+        if (numeric === total) return 'number';
+        if (dateish === total) return 'date';
+        if (numeric / total > 0.9) return 'number';
+        if (dateish / total > 0.9) return 'date';
+        const distinct = new Set(
+          values.map((v) => (v && typeof v === 'object' ? JSON.stringify(v) : String(v)))
+        );
+        if (distinct.size <= 20 || distinct.size / total <= 0.2) return 'categorical';
+        return 'text';
+      }
+      function computeFieldSchema(pool) {
+        const byField = new Map();
+        for (const conv of pool) {
+          if ((conv.viewAs || conv.kind) !== 'record' || !Array.isArray(conv.fields)) continue;
+          for (const [k, v] of conv.fields) {
+            if (v == null || v === '') continue;
+            if (!byField.has(k)) byField.set(k, []);
+            byField.get(k).push(v);
+          }
+        }
+        const schema = [];
+        for (const [field, values] of byField) {
+          const type = inferFieldType(values);
+          const entry = { field, type, recordCount: values.length };
+          if (type === 'number') {
+            const nums = values.map(numericValue).filter((n) => n != null);
+            entry.min = Math.min(...nums);
+            entry.max = Math.max(...nums);
+          } else if (type === 'date') {
+            const secs = values.map((v) => toEpochSeconds(v)).filter(Boolean);
+            if (secs.length) {
+              entry.min = formatDate(Math.min(...secs));
+              entry.max = formatDate(Math.max(...secs));
+            }
+          } else if (type === 'boolean') {
+            entry.trueCount = values.filter((v) => !!v).length;
+            entry.falseCount = values.length - entry.trueCount;
+          } else if (type === 'categorical') {
+            const counts = new Map();
+            for (const v of values) {
+              const s = String(v);
+              counts.set(s, (counts.get(s) || 0) + 1);
+            }
+            entry.distinctCount = counts.size;
+            entry.topValues = [...counts.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 10)
+              .map(([value, count]) => ({ value, count }));
+          } else {
+            entry.distinctCount = new Set(values.map(String)).size;
+          }
+          schema.push(entry);
+        }
+        schema.sort((a, b) => b.recordCount - a.recordCount);
+        return schema;
+      }
+      function toolDescribeFields(input) {
+        let pool = allConversations;
+        if (Array.isArray(input.ids) && input.ids.length)
+          pool = pool.filter((c) => input.ids.includes(c.id));
+        const fieldRecords = pool.filter((c) => (c.viewAs || c.kind) === 'record').length;
+        return {
+          totalRecords: pool.length,
+          chatRecords: pool.length - fieldRecords,
+          fieldRecords,
+          builtIn: ['platform', 'tag', 'kind', 'month', 'year', 'wordCount', 'messageCount'],
+          fields: computeFieldSchema(pool),
+        };
+      }
+
+      // Same real-computation-not-tallying idea as Archive Mole's
+      // get_stats, extended to also group by any field describe_fields
+      // found, since (unlike Archive Mole) an In Your Base record's own
+      // fields aren't a fixed, known set ahead of time.
+      function statsBucketKeys(conv, groupBy) {
+        if (groupBy === 'platform') return [conv.platform || '(none)'];
+        if (groupBy === 'kind') return [(conv.viewAs || conv.kind) || '(none)'];
+        if (groupBy === 'tag') {
+          const tags = userTags[conv.id];
+          return tags && tags.length ? tags : ['(untagged)'];
+        }
+        if (groupBy === 'month' || groupBy === 'year') {
+          const t = conv.updated || conv.created;
+          if (!t) return ['(no date)'];
+          const d = new Date(t * 1000);
+          return [
+            groupBy === 'year'
+              ? String(d.getFullYear())
+              : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'),
+          ];
+        }
+        if (Array.isArray(conv.fields)) {
+          const entry = conv.fields.find(([k]) => k === groupBy);
+          if (entry && entry[1] != null && entry[1] !== '') {
+            const v = entry[1];
+            return [v && typeof v === 'object' ? JSON.stringify(v) : String(v)];
+          }
+        }
+        return ['(missing)'];
+      }
+      function metricValueFor(conv, metric) {
+        if (metric === 'wordCount') return conv.wordCount || 0;
+        if (metric === 'messageCount') return conv.messageCount || 0;
+        if (Array.isArray(conv.fields)) {
+          const entry = conv.fields.find(([k]) => k === metric);
+          if (entry) return numericValue(entry[1]);
+        }
+        return null;
+      }
+      function toolGetStats(input) {
+        const groupBy = input.groupBy;
+        if (!groupBy) return { error: 'groupBy is required' };
+        let pool = allConversations;
+        if (Array.isArray(input.ids) && input.ids.length)
+          pool = pool.filter((c) => input.ids.includes(c.id));
+        const metric = input.metric || null;
+        const groups = new Map();
+        for (const conv of pool) {
+          for (const key of statsBucketKeys(conv, groupBy)) {
+            let g = groups.get(key);
+            if (!g) {
+              g = { key, count: 0, sum: 0, min: Infinity, max: -Infinity, metricCount: 0 };
+              groups.set(key, g);
+            }
+            g.count++;
+            if (metric) {
+              const v = metricValueFor(conv, metric);
+              if (v != null) {
+                g.sum += v;
+                g.metricCount++;
+                if (v < g.min) g.min = v;
+                if (v > g.max) g.max = v;
+              }
+            }
+          }
+        }
+        const groupsOut = [...groups.values()]
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 200)
+          .map((g) => {
+            const base = { key: g.key, count: g.count };
+            if (metric && g.metricCount) {
+              base.sum = Math.round(g.sum * 100) / 100;
+              base.avg = Math.round((g.sum / g.metricCount) * 100) / 100;
+              base.min = g.min;
+              base.max = g.max;
+            }
+            return base;
+          });
+        return {
+          groupBy,
+          metric: metric || null,
+          totalRecords: pool.length,
+          groupCount: groups.size,
+          groups: groupsOut,
+        };
+      }
+
       // Findings accumulate for the whole chat (cleared with the chat, on
       // "clear chat") and exist for two reasons: they're the record the
       // assistant is actually building toward, and they're what
@@ -3833,6 +4012,29 @@
           },
         },
         {
+          name: 'describe_fields',
+          description:
+            "Discover what fields actually exist across the loaded archive's record-kind items, before guessing a field name for search_records or get_stats — field names aren't fixed ahead of time, since they come straight from whatever the export called them. Returns each field's inferred type (number, date, boolean, categorical, or text), how many records have it, and — depending on type — its range, true/false split, or most common values. Also lists the built-in dimensions (platform, tag, kind, month, year) and metrics (wordCount, messageCount) usable in get_stats regardless of file shape. Optionally restrict to specific ids from a prior filter or search call.",
+          input_schema: {
+            type: 'object',
+            properties: { ids: { type: 'array', items: { type: 'string' } } },
+          },
+        },
+        {
+          name: 'get_stats',
+          description:
+            "Compute real counts — and, with a metric set, sum/avg/min/max — grouped by platform, tag, kind, month, year, or any field name reported by describe_fields, instead of tallying filter_records or search_records results yourself. metric can be 'wordCount', 'messageCount', or any field describe_fields reports as type 'number'. Optionally restrict to specific ids from a prior filter or search call. Use this whenever a question is quantitative ('how many', 'which month had the most', 'total/average of some field') rather than reaching for filter_records and adding results up in your head.",
+          input_schema: {
+            type: 'object',
+            properties: {
+              groupBy: { type: 'string', description: "'platform', 'tag', 'kind', 'month', 'year', or a field name from describe_fields." },
+              metric: { type: 'string', description: "optional: 'wordCount', 'messageCount', or a numeric field name from describe_fields" },
+              ids: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['groupBy'],
+          },
+        },
+        {
           name: 'read_record',
           description:
             'Return the full verbatim content of one record by id. This is the expensive, close-reading step — use it only for records already flagged as high-signal. The full text is only visible for this round and the next; call record_finding before moving on to another record, or the detail is gone from context (though the record can always be re-read).',
@@ -3864,6 +4066,10 @@
             return toolFilterConversations(input || {});
           if (name === 'search_records')
             return toolSearchConversations(input || {});
+          if (name === 'describe_fields')
+            return toolDescribeFields(input || {});
+          if (name === 'get_stats')
+            return toolGetStats(input || {});
           if (name === 'read_record')
             return toolReadConversation(input || {});
           if (name === 'record_finding')

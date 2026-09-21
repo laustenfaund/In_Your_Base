@@ -1891,17 +1891,36 @@
 
       // {conversations: [...]} is the one shape both ChatGPT and Claude
       // exports use. Any other export is just as likely to wrap its list
-      // under some other name (contacts, items, bookmarks, entries...), so
-      // the common names are tried first for stability, then whatever's
-      // own first non-empty array.
+      // under some other name (contacts, items, bookmarks, entries...), or
+      // to nest that list another level or two down (e.g. {data: {results:
+      // [...]}}), so the common names are tried first at each level, then
+      // whatever's own first non-empty array, before stepping into a nested
+      // object and repeating the search one level deeper. Depth-capped so
+      // an odd or deeply-nested file can't recurse indefinitely; if nothing
+      // is found anywhere, the whole file becomes a single record rather
+      // than being dropped.
+      const RECORD_ARRAY_PREFERRED = ['conversations', 'chats', 'data', 'items', 'records', 'entries', 'results'];
+      function findRecordArray(data, depth) {
+        if (Array.isArray(data)) return data.length ? data : null;
+        if (!isPlainObject(data) || depth <= 0) return null;
+        for (const k of RECORD_ARRAY_PREFERRED)
+          if (Array.isArray(data[k]) && data[k].length) return data[k];
+        for (const k of Object.keys(data))
+          if (Array.isArray(data[k]) && data[k].length) return data[k];
+        for (const k of RECORD_ARRAY_PREFERRED) {
+          const found = isPlainObject(data[k]) && findRecordArray(data[k], depth - 1);
+          if (found) return found;
+        }
+        for (const k of Object.keys(data)) {
+          const found = isPlainObject(data[k]) && findRecordArray(data[k], depth - 1);
+          if (found) return found;
+        }
+        return null;
+      }
       function unwrapExportArray(data) {
         if (Array.isArray(data)) return data;
         if (!data || typeof data !== 'object') return [data];
-        const preferred = ['conversations', 'chats', 'data', 'items', 'records', 'entries', 'results'];
-        for (const k of preferred) if (Array.isArray(data[k])) return data[k];
-        for (const k of Object.keys(data))
-          if (Array.isArray(data[k]) && data[k].length) return data[k];
-        return [data];
+        return findRecordArray(data, 4) || [data];
       }
 
       // Fields left out of a record's own field table and search text:
@@ -1951,6 +1970,45 @@
         return entries
           .map(([, v]) => (v && typeof v === 'object' ? JSON.stringify(v) : String(v)))
           .join(' ');
+      }
+      function isPlainObject(v) {
+        return !!v && typeof v === 'object' && !Array.isArray(v);
+      }
+      // Expands a record's own top-level fields into a flat, dotted-path
+      // list so structural tools (describe_fields, get_stats) can reach
+      // into nested data — a plain object's own keys aren't fixed ahead of
+      // time any more than the record's own fields are, so this applies the
+      // same "read whatever's actually there" rule one level further in. A
+      // nested object becomes address.city / address.zip. A nested array of
+      // objects becomes the first item's fields under key[0].*, plus a
+      // key.count entry — flattening every item would mean guessing which
+      // one a query means, so instead the common case (zero or one item)
+      // stays queryable and the rest stays visible as a count rather than
+      // silently vanishing. Depth-capped so an odd or deeply-nested export
+      // can't recurse indefinitely. This only builds a search/schema index —
+      // the record's own `fields` (and what read_record returns) stay the
+      // true, unflattened shape read from the file.
+      function flattenEntries(entries, prefix, depth) {
+        if (depth == null) depth = 4;
+        const out = [];
+        for (const [k, v] of entries) {
+          const key = prefix ? prefix + '.' + k : k;
+          if (isPlainObject(v) && depth > 0) {
+            const sub = Object.keys(v).map((sk) => [sk, v[sk]]);
+            if (sub.length) {
+              out.push(...flattenEntries(sub, key, depth - 1));
+              continue;
+            }
+          }
+          if (Array.isArray(v) && v.length && depth > 0 && v.every(isPlainObject)) {
+            const first = Object.keys(v[0]).map((sk) => [sk, v[0][sk]]);
+            out.push(...flattenEntries(first, key + '[0]', depth - 1));
+            out.push([key + '.count', v.length]);
+            continue;
+          }
+          out.push([key, v]);
+        }
+        return out;
       }
       // Used only when a record is manually switched to the other view and
       // has no messages of its own (extraction already came up empty, or
@@ -2047,7 +2105,8 @@
           // was never reached is what tells the two apart.
           const hasRealTitle = conv.title !== 'Untitled record';
           if (!messages.length && !entries.length && !hasRealTitle) continue; // nothing here at all
-          const fieldText = flattenFieldsForSearch(entries);
+          const flatFields = flattenEntries(entries);
+          const fieldText = flattenFieldsForSearch(flatFields);
           const kind = messages.length ? 'chat' : 'record';
           const wordCount = messages.length
             ? messages.reduce((s, m) => s + m.text.split(/\s+/).length, 0)
@@ -2076,6 +2135,7 @@
             wordCount,
             messageCount: messages.length,
             fields: entries,
+            flatFields,
             topFields: pickTopFields(entries),
             fieldCount: entries.length,
             fieldText,
@@ -3745,8 +3805,8 @@
       function computeFieldSchema(pool) {
         const byField = new Map();
         for (const conv of pool) {
-          if ((conv.viewAs || conv.kind) !== 'record' || !Array.isArray(conv.fields)) continue;
-          for (const [k, v] of conv.fields) {
+          if ((conv.viewAs || conv.kind) !== 'record' || !Array.isArray(conv.flatFields)) continue;
+          for (const [k, v] of conv.flatFields) {
             if (v == null || v === '') continue;
             if (!byField.has(k)) byField.set(k, []);
             byField.get(k).push(v);
@@ -3823,8 +3883,8 @@
               : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'),
           ];
         }
-        if (Array.isArray(conv.fields)) {
-          const entry = conv.fields.find(([k]) => k === groupBy);
+        if (Array.isArray(conv.flatFields)) {
+          const entry = conv.flatFields.find(([k]) => k === groupBy);
           if (entry && entry[1] != null && entry[1] !== '') {
             const v = entry[1];
             return [v && typeof v === 'object' ? JSON.stringify(v) : String(v)];
@@ -3835,8 +3895,8 @@
       function metricValueFor(conv, metric) {
         if (metric === 'wordCount') return conv.wordCount || 0;
         if (metric === 'messageCount') return conv.messageCount || 0;
-        if (Array.isArray(conv.fields)) {
-          const entry = conv.fields.find(([k]) => k === metric);
+        if (Array.isArray(conv.flatFields)) {
+          const entry = conv.flatFields.find(([k]) => k === metric);
           if (entry) return numericValue(entry[1]);
         }
         return null;

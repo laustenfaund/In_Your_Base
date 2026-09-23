@@ -654,6 +654,25 @@
         align-items: center;
         display: none;
       }
+      .field-facets {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .facet-group {
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .facet-group .filter-label {
+        min-width: 70px;
+      }
+      .facet-count {
+        opacity: 0.65;
+        margin-left: 2px;
+      }
       .user-tag-chip {
         font-size: 11px;
         font-family: var(--mono);
@@ -1304,6 +1323,8 @@
           <div id="tag-filter-chips"></div>
         </div>
 
+        <div class="field-facets" id="field-facets-row" style="display: none;"></div>
+
         <div class="ticker">
           <span><b id="stat-convs">880</b> records</span>
           <span><b id="stat-msgs">38,582</b> messages</span>
@@ -1558,6 +1579,10 @@
         activeTimelineMonth = null,
         timelineData = [];
       let activeTagFilter = null;
+      // field -> selected value (as a string, matching how computeFieldSchema
+      // stringifies values for its topValues). One active value per field;
+      // multiple fields filter together (AND'ed), same as the other filters.
+      let activeFieldFilters = {};
       const threadState = {};
 
       function idbOpen() {
@@ -2468,6 +2493,12 @@
           result = result.filter((c) =>
             (userTags[c.id] || []).includes(activeTagFilter)
           );
+        for (const [field, value] of Object.entries(activeFieldFilters))
+          result = result.filter((c) => {
+            if (!Array.isArray(c.flatFields)) return false;
+            const entry = c.flatFields.find(([k]) => k === field);
+            return entry && entry[1] != null && String(entry[1]) === value;
+          });
         if (searchTerms.length)
           result = result.filter(
             (c) => scoreConv(c, searchTerms, searchMode) > 0
@@ -2492,6 +2523,63 @@
         filteredConversations = result;
         currentPage = 0;
         renderConversations();
+        renderFieldFacets();
+      }
+
+      // Facets for whatever fields the currently-filtered records actually
+      // have — built from the same field schema describe_fields uses, so
+      // this is a human-facing view of the exact same data the AI assistant
+      // already gets, not a separate computation. Counts are computed on
+      // filteredConversations (after every other active filter, including
+      // other field facets), so picking a value here narrows the rest —
+      // the standard faceted-search drill-down. Only categorical and
+      // boolean fields get chip rows; number/date/text fields don't have a
+      // small fixed set of values to click, so they're left to search
+      // instead. Capped to the 6 fields with the most records holding
+      // them, so an export with dozens of odd fields doesn't fill the page.
+      function toggleFieldFacet(field, value) {
+        if (activeFieldFilters[field] === value) delete activeFieldFilters[field];
+        else activeFieldFilters[field] = value;
+        applyFilters();
+      }
+      function renderFieldFacets() {
+        const row = document.getElementById('field-facets-row');
+        const schema = computeFieldSchema(filteredConversations).filter(
+          (f) =>
+            f.type === 'boolean' ||
+            (f.type === 'categorical' && f.distinctCount < f.recordCount)
+        );
+        if (!schema.length) {
+          row.style.display = 'none';
+          row.innerHTML = '';
+          return;
+        }
+        const fields = schema.slice(0, 6);
+        row.style.display = 'flex';
+        row.innerHTML = fields
+          .map((f) => {
+            const options =
+              f.type === 'boolean'
+                ? [
+                    { value: 'true', count: f.trueCount },
+                    { value: 'false', count: f.falseCount },
+                  ].filter((o) => o.count > 0)
+                : f.topValues;
+            const chips = options
+              .map(({ value, count }) => {
+                const active = activeFieldFilters[f.field] === value;
+                return `<button class="chip${
+                  active ? ' active' : ''
+                }" onclick="toggleFieldFacet(${jsAttr(f.field)},${jsAttr(
+                  value
+                )})">${esc(value)}<span class="facet-count">${count}</span></button>`;
+              })
+              .join('');
+            return `<div class="facet-group"><span class="filter-label">${esc(
+              f.field
+            )}:</span>${chips}</div>`;
+          })
+          .join('');
       }
 
       function renderThreadMessages(convId, scrollId, mcId) {

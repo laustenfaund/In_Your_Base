@@ -1633,6 +1633,28 @@
         const w = document.getElementById('storage-warning');
         if (w) w.style.display = 'none';
       }
+      // Files that fail to parse as JSON previously only reached
+      // console.error — nothing told the person who actually dropped the
+      // file in that it didn't work. textContent only, never innerHTML: a
+      // malicious filename must never become markup.
+      function showImportWarning(failed) {
+        let w = document.getElementById('import-warning');
+        if (!failed.length) {
+          if (w) w.style.display = 'none';
+          return;
+        }
+        if (!w) {
+          w = document.createElement('div');
+          w.id = 'import-warning';
+          w.style.cssText =
+            'position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;text-align:center;padding:8px;font-family:sans-serif;font-size:13px;z-index:99999';
+          document.body.appendChild(w);
+        }
+        w.textContent = `Couldn't read ${failed.join(
+          ', '
+        )} — not valid JSON.`;
+        w.style.display = 'block';
+      }
       function save() {
         return idbSet(DB_KEY, allConversations)
           .then(() => idbSet(FILES_KEY, [...loadedFileNames]))
@@ -2108,7 +2130,7 @@
           }
           const id =
             conv.id || conv.conversation_id || Math.random().toString(36);
-          if (allConversations.some((c) => c.id === id)) continue;
+          const existingIdx = allConversations.findIndex((c) => c.id === id);
           const messages = extractMessages(conv);
           const created = conv.create_time || 0,
             updated = conv.update_time || created;
@@ -2130,6 +2152,19 @@
           // was never reached is what tells the two apart.
           const hasRealTitle = conv.title !== 'Untitled record';
           if (!messages.length && !entries.length && !hasRealTitle) continue; // nothing here at all
+          if (existingIdx !== -1) {
+            const existing = allConversations[existingIdx];
+            // A later import of the same id only replaces what's already
+            // loaded when it actually has more — more messages, or more of
+            // its own fields — than the version already there. Anything
+            // else (a re-export with nothing new, or less) is treated as
+            // the same duplicate it already was, same as before.
+            if (
+              messages.length + entries.length <=
+              existing.messageCount + existing.fieldCount
+            )
+              continue;
+          }
           const flatFields = flattenEntries(entries);
           const fieldText = flattenFieldsForSearch(flatFields);
           const kind = messages.length ? 'chat' : 'record';
@@ -2143,6 +2178,7 @@
               messages[0]?.text?.slice(0, 150) ||
               ''
             : '';
+          if (existingIdx !== -1) allConversations.splice(existingIdx, 1);
           conversations.push({
             id,
             title: conv.title || 'Untitled record',
@@ -2173,10 +2209,10 @@
         document.getElementById('progress').style.display = 'block';
         const bar = document.getElementById('progress-bar');
         let added = 0;
+        const failed = [];
         for (let i = 0; i < files.length; i++) {
           bar.style.width = Math.round(((i + 0.5) / files.length) * 100) + '%';
           const file = files[i];
-          if (loadedFileNames.has(file.name)) continue;
           try {
             const data = JSON.parse(await file.text());
             const parsed = parseFile(data, file.name);
@@ -2185,6 +2221,7 @@
             added += parsed.length;
           } catch (e) {
             console.error(file.name, e);
+            failed.push(file.name);
           }
           await new Promise((r) => setTimeout(r, 10));
         }
@@ -2194,6 +2231,7 @@
         save();
         document.getElementById('progress').style.display = 'none';
         bar.style.width = '0%';
+        showImportWarning(failed);
         showMain();
         buildTimeline();
         updateStats();

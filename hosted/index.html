@@ -1138,6 +1138,10 @@
       .assistant-field:focus {
         border-color: var(--accent);
       }
+      .assistant-field:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
       .assistant-textarea {
         min-height: 38px;
         max-height: 220px;
@@ -4548,7 +4552,12 @@
             model,
             system: [{ type: 'text', text: brief, cache_control: { type: 'ephemeral' } }],
             tools: ASSISTANT_TOOLS,
-            output_config: { effort },
+            // Haiku 4.5 400s on output_config.effort — every other model in
+            // the dropdown accepts it. Omitted here rather than sent as
+            // undefined-and-stripped worker-side, so the Worker's own cost
+            // estimate (which reads body.output_config) matches what
+            // actually goes out.
+            ...(model === 'claude-haiku-4-5' ? {} : { output_config: { effort } }),
             messages: withCacheBreakpoint(messages),
           },
           onTextDelta
@@ -4733,6 +4742,24 @@
           e.target.style.height = 'auto';
           e.target.style.height = Math.min(e.target.scrollHeight, 220) + 'px';
         });
+
+      // Haiku 4.5 errors on output_config.effort (unlike every other model
+      // in the dropdown), so the effort control is disabled rather than
+      // sent-and-ignored while Haiku is selected — callClaude leaves
+      // output_config out of the request entirely in that case.
+      function syncEffortAvailability() {
+        const model = document.getElementById('assistant-model-select').value;
+        const effortSelect = document.getElementById('assistant-effort-select');
+        const isHaiku = model === 'claude-haiku-4-5';
+        effortSelect.disabled = isHaiku;
+        effortSelect.title = isHaiku
+          ? "Haiku 4.5 doesn't support an effort setting."
+          : 'How much the model reasons before answering — lower cuts token spend on harder requests.';
+      }
+      document
+        .getElementById('assistant-model-select')
+        .addEventListener('change', syncEffortAvailability);
+      syncEffortAvailability();
 
       document.getElementById('file-input').addEventListener('change', (e) => {
         processFiles([...e.target.files]);
